@@ -1,4 +1,4 @@
-package loopback
+package blockfile
 
 import (
     "os"
@@ -9,6 +9,7 @@ import (
 )
 
 const GOOS = runtime.GOOS
+const LOOPBACK_VOLPATH = "/var/lib/docker/volumes/.loopback"
 
 var (
     providerName string
@@ -19,11 +20,12 @@ type Driver struct {
 }
 
 func init() {
-    providerName = "loopback"
+    providerName = "blockfile"
     storagedriver.Register("loopback", Init)
 }
 
 func Init() (storagedriver.Driver, error) {
+    
     if os.Getenv("REXRAY_DEBUG") == "true" {
         log.Println("Storage Driver Initialized: " + providerName)
 	}
@@ -36,18 +38,7 @@ func Init() (storagedriver.Driver, error) {
 // Lists the block devices that are attached to the instance
 func (driver *Driver) GetVolumeMapping() (interface{}, error) {
     
-    if GOOS == "darwin" {
-        return driver.getVolumeMapping_darwin()
-    }
     
-    if GOOS == "linux" {
-        return nil, nil
-    }
-    
-    return nil, nil
-}
-
-func (driver *Driver) getVolumeMapping_darwin() (interface{}, error) {
     return nil, nil
 }
 

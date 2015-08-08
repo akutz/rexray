@@ -8,6 +8,6 @@ import (
 func TestGetDriverNames(t *testing.T) {
 	names := storage.GetDriverNames();
 	if names == nil || len(names) == 0 {
-	    t.Error("failed to find at least 'loopback' driver")
+	    t.Error("failed to find at least 'blockfile' driver")
 	}
 }
