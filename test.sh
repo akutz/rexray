@@ -7,6 +7,7 @@ for DIR in $(find . -type d \
              -not -path '*/.*' \
              -not -path './.git*' \
              -not -path '*/_*' \
+             -not -path './build/*' \
              -not -path './vendor/*' \
              -not -path './version_info/*' \
              -not -path './imports/*' \

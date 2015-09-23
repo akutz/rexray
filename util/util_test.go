@@ -4,6 +4,8 @@ import (
 	"testing"
 )
 
+var i int
+
 func TestStringInSlice(t *testing.T) {
 
 	var r bool

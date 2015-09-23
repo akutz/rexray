@@ -12,6 +12,11 @@ example
 release/*
 golang-crosscompile/
 .project
+.goget
+.goglide
+
+.fmt/
+.fix/
 
 # Created by https://www.gitignore.io
 
