@@ -10,39 +10,27 @@ export GO15VENDOREXPERIMENT := 1
 # set the go os and architecture types as well the sed command to use based on 
 # the os and architecture types
 ifeq ($(OS),Windows_NT)
-	GOOS ?= windows
+	V_OS := windows
 	ifeq ($(PROCESSOR_ARCHITECTURE),AMD64)
-		export GOARCH ?= amd64
+		V_ARCH := x86_64
 	endif
 	ifeq ($(PROCESSOR_ARCHITECTURE),x86)
-		export GOARCH ?= 386
+		V_ARCH := i386
 	endif
 else
-	UNAME_S := $(shell uname -s)
-	UNAME_P := $(shell uname -p)
-	ifeq ($(UNAME_S),Linux)
-		export GOOS ?= linux
-	endif
-	ifeq ($(UNAME_S),Darwin)
-		export GOOS ?= darwin
-		export GOARCH ?= amd64
-	endif
-	ifeq ($(origin GOARCH), undefined)
-		ifeq ($(UNAME_P),x86_64)
-			export GOARCH = amd64
-		endif
-		ifneq ($(filter %86,$(UNAME_P)),)
-			export GOARCH = 386
-		endif
+	V_OS := $(shell uname -s)
+	V_ARCH := $(shell uname -p)
+	ifeq ($(V_OS),Darwin)
+		V_ARCH := x86_64
 	endif
 endif
+V_OS_ARCH := $(V_OS)-$(V_ARCH)
+
+# the go binary
+GO := go
 
 # init the build platforms
 BUILD_PLATFORMS ?= Linux-i386 Linux-x86_64 Darwin-x86_64
-
-# init the internal go os and architecture variable values used for naming files
-_GOOS ?= $(GOOS)
-_GOARCH ?= $(GOARCH)
 
 # parse a semver
 SEMVER_PATT := ^[^\d]*(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z].+?))?(?:-(\d+)-g(.+?)(?:-(dirty))?)?$$
@@ -60,24 +48,6 @@ V_NOTES := $(call PARSE_GIT_DESCRIBE,$$4)
 V_BUILD := $(call PARSE_GIT_DESCRIBE,$$5)
 V_SHA_SHORT := $(call PARSE_GIT_DESCRIBE,$$6)
 V_DIRTY := $(call PARSE_GIT_DESCRIBE,$$7)
-
-# the version's binary os and architecture type
-ifeq ($(_GOOS),windows)
-	V_OS := Windows_NT
-endif
-ifeq ($(_GOOS),linux)
-	V_OS := Linux
-endif
-ifeq ($(_GOOS),darwin)
-	V_OS := Darwin
-endif
-ifeq ($(_GOARCH),386)
-	V_ARCH := i386
-endif
-ifeq ($(_GOARCH),amd64)
-	V_ARCH := x86_64
-endif
-V_OS_ARCH := $(V_OS)-$(V_ARCH)
 
 # the long commit hash
 V_SHA_LONG := $(shell git show HEAD -s --format=%H)
@@ -142,7 +112,6 @@ endif
 # the rpm version cannot have any dashes
 V_RPM_SEMVER := $(subst -,+,$(V_SEMVER))
 
-GOFLAGS := $(GOFLAGS)
 GLIDE := $(GOPATH)/bin/glide
 NV := $$($(GLIDE) novendor)
 
@@ -172,177 +141,214 @@ EMCCODE := $(GOPATH)/src/github.com/emccode
 STAT_FILE_SIZE = stat --format '%s' $$FILE 2> /dev/null || stat -f '%z' $$FILE 2> /dev/null
 CALC_FILE_SIZE := BYTES=$$($(STAT_FILE_SIZE)); SIZE=$$(($$BYTES / 1024 / 1024)); printf "$${SIZE}MB"
 PRINT_FILE_SIZE := $(STAT_FILE_SIZE) $(CALC_FILE_SIZE)
-PRINT_STATUS = export EC=$$?; cd $(CWD); if [ "$$EC" -eq "0" ]; then printf "SUCCESS!\n"; else exit $$EC; fi
+MAX_PAD := 80
+STATUS_DELIM := ....................................................................................................
+START_STATUS = export FILE=$(1); export PAD_LEN=$$(($(MAX_PAD) - $${\#FILE})); printf "$$FILE"
+PRINT_STATUS = export EC=$$?; cd $(CWD); if [ "$$EC" -eq "0" ]; then printf "%*.*s%s\n" 0 $$PAD_LEN "$(STATUS_DELIM)" "SUCCESS!"; else exit $$EC; fi
 PARSE_RESULT = export EC=$$?; cd $(CWD); if [ "$$EC" -ne "0" ]; then exit $$EC; fi
 
-RPMBUILD := .rpmbuild
+GET_GOOS = $(shell echo $(1) | tr A-Z a-z)
+GET_GOARCH = $(shell if [ "$(1)" = "x86_64" ]; then echo amd64; else echo 386; fi)
 
-SRCS := $(shell find . -name "*.go" -type f -not -path './vendor/*' -not -path '*/*test.go' | tr '\n' ' ')
-PKGS := $(shell find . -type f -name "*.go" -not -path "./vendor/*" | sed 's|[^/]\{1,\}$$||' | sort | uniq)
+BINDIR := .bin
+RPMDIR := .rpm
+OUTDIR := .out
+TSTDIR := .tst
 
-TEST_PKGS := $(shell find . -type f -name "*test.go" -not -path "./vendor/*" | sed 's|[^/]\{1,\}$$||' | sort | uniq)
-TEST_SRCS := $(shell find . -name "*test.go" -type f -not -path './vendor/*' | tr '\n' ' ')
-TESTS := $(shell for P in $(TEST_PKGS); do echo $$P$$(basename $$P).test; done)
+NOT_PATH := -not -path './.*' -not -path './vendor/*'
+PKG_PARS := sed 's|[^/]\{1,\}$$||' | cut -c2- | rev | cut -c2- | rev | sort | uniq | awk 'NF > 0'
 
-DEPS := $(shell for P in $(PKGS); do if [ "$$P" = "." ]; then echo .goget; else echo $$P.goget; fi; done)
+FIND_SRCS := find . -type f -name "*.go"
+SRCS := $(shell $(FIND_SRCS) $(NOT_PATH) -not -path '*/*test.go' | tr '\n' ' ')
+PKGS := $(shell $(FIND_SRCS) $(NOT_PATH) | $(PKG_PARS))
+
+FIND_TSTS := find . -type f -name "*test.go"
+TEST_PKGS := $(shell $(FIND_TSTS) $(NOT_PATH) | $(PKG_PARS))
+TEST_SRCS := $(shell $(FIND_TSTS) $(NOT_PATH) | tr '\n' ' ')
+TESTS := $(shell for P in $(TEST_PKGS); do echo $(BUILD)/$$P$$(basename $$P).test; done)
+
+GET_DEPS := .goget $(shell for P in $(PKGS); do echo .$$P/.goget; done)
+GLD_DEPS := .goglide
+DEPS := $(GET_DEPS) $(GLD_DEPS)
 
 ALL_SRCS := $(SRCS) $(TEST_SRCS)
-FMT_SRCS := $(shell for F in $(ALL_SRCS); do echo $$(dirname $$F)/.fmt/$$(basename $$F).fmt; done)
-FIX_SRCS := $(shell for F in $(ALL_SRCS); do echo $$(dirname $$F)/.fix/$$(basename $$F).fix; done)
+
+EMPTY :=
+SPACE := $(EMPTY) $(EMPTY)
+VPATH := $(subst $(SPACE),:,$(PKGS))
 
 VENDOR := vendor
-
 TGT := rexray
 
-BLD := 		build/$(V_OS_ARCH)
-BIN_FILE := $(TGT)
-BIN := 		$(BLD)/$(BIN_FILE)
+.NOTPARALLEL:
+.PHONY: all print-version
+all: | deps build tgz tgz-latest rpm rpm-latest deb deb-latest
 
-TGZ_FILE := 		$(BIN_FILE)-$(V_OS_ARCH).$(V_SEMVER).tar.gz
-TGZ_FILE_LATEST := 	$(BIN_FILE)-$(V_OS_ARCH).tar.gz
-TGZ :=				$(BLD)/$(TGZ_FILE)
-TGZ_LATEST := 		$(BLD)/$(TGZ_FILE_LATEST)
-
-RPM_FILE := 		$(BIN_FILE)-$(V_RPM_SEMVER)-1.$(V_ARCH).rpm
-RPM_FILE_LATEST :=	$(BIN_FILE)-latest-$(V_ARCH).rpm
-RPM :=				$(BLD)/$(RPM_FILE)
-RPM_LATEST :=		$(BLD)/$(RPM_FILE_LATEST)
-
-DEB_FILE := 		$(BIN_FILE)_$(V_RPM_SEMVER)-1_amd64.deb
-DEB_FILE_LATEST :=	$(BIN_FILE)-latest-$(V_ARCH).deb
-DEB :=				$(BLD)/$(DEB_FILE)
-DEB_LATEST :=		$(BLD)/$(DEB_FILE_LATEST)
-
-ifeq (Linux,$(UNAME_S))
-all: deps fmt fix build tgz tgz-latest rpm rpm-latest deb deb-latest
-else
-all: deps fmt fix build tgz tgz-latest
-endif
-
-define DEPS_TARGET
+define GET_DEPS_TARGET
 $1: $$(wildcard $$(dir $1)*.go)
-ifeq ($(origin OFFLINE), undefined)
-	@printf "go get $$(dir $1)..."
-	@go get -d $$(GOFLAGS) $$(dir $1); \
+ifeq ($$(origin OFFLINE), undefined)
+	@$$(call START_STATUS,"go get $$(dir $1)"); \
+		go get -d $$(GOFLAGS) $$(dir $1); \
 		$$(PRINT_STATUS); \
 		touch $1
 endif
 endef
-$(foreach d,$(DEPS),$(eval $(call DEPS_TARGET,$(d))))
-deps: $(DEPS) .goglide
+$(foreach d,$(GET_DEPS),$(eval $(call GET_DEPS_TARGET,$(d))))
+goget: $(GET_DEPS)
 
-.goglide : glide.yaml
+$(GLD_DEPS): glide.yaml
 ifeq ($(origin OFFLINE), undefined)
-	@printf "glide up..."
-	@$(GLIDE) -q up 2> /dev/null; \
-		$(PRINT_STATUS); \
-		touch .goglide
+	@$(call START_STATUS,glide); \
+		$(GLIDE) -q up 2> /dev/null; \
+			$(PRINT_STATUS); \
+			touch .goglide
 endif
+glide: $(GLD_DEPS)
 
-define FMT_TARGET
-fmt-$$(subst ./,,$$(subst //,/,$$(subst .fmt,,$1))): $1
-$1: $$(subst ./,,$$(subst //,/,$$(subst .fmt,,$1)))
-	@mkdir -p $$(dir $$@); \
-		touch $$@; \
-		R=$$$$(go fmt $$?); \
-		EC=$$$$?; \
-		if [ "$$$$EC" -ne "0" ]; then rm -f $$@; \
-		elif [ "$$$$R" != "" ]; then \
-			printf "formatting $$?...SUCCESS\n"; \
-		fi
-endef
-$(foreach f,$(FMT_SRCS),$(eval $(call FMT_TARGET,$(f))))
-fmt: $(FMT_SRCS)
+deps: $(GET_DEPS) $(GLD_DEPS)
 
-define FIX_TARGET
-fix-$$(subst ./,,$$(subst //,/,$$(subst .fix,,$1))): $1
-$1: $$(subst ./,,$$(subst //,/,$$(subst .fix,,$1)))
-	@mkdir -p $$(dir $$@); \
-		touch $$@; \
-		R=$$$$(go fix $$?); \
-		EC=$$$$?; \
-		if [ "$$$$EC" -ne "0" ]; then rm -f $$@; \
-		elif [ "$$$$R" != "" ]; then \
-			printf "fixing $$?...SUCCESS\n"; \
-		fi
-endef
-$(foreach f,$(FIX_SRCS),$(eval $(call FIX_TARGET,$(f))))
-fix: $(FIX_SRCS)
-
-build: $(BIN) 
-$(BIN): $(SRCS)
-	@printf "building $(BIN_FILE)..."
-	@cd $(BASEDIR); \
-		go build -o $(BIN) $(GOFLAGS) $(LDFLAGS) ./$(TGT); \
-		$(PRINT_STATUS)
-
-define BUILD_TARGET
-$1: $$(SRCS) $$(wildcard $$(dir $1)*test.go)
-	@printf "building $1..."
-	@go test -c ./$$(@D) -o $$@; \
+define OBJS_TARGET
+OBJS_SRC_PKG_$1 := .$$(basename $$(subst $2,,$1))
+ifeq ($$(OBJS_SRC_PKG_$1),.)
+	OBJS_SRC_PKG_$1 := ./
+endif
+$1: $$(wildcard $$(OBJS_SRC_PKG_$1)/*.go)
+	@$$(call START_STATUS,$$(BASEPKG)$$(subst $2,,$1)); \
+		cd $$(BASEDIR); \
+		$$(GO) fmt $$?; \
+		$$(GO) fix $$?; \
+		env GOOS=$3 \
+			GOARCH=$4 \
+			$$(GO) build \
+				-o $1 \
+				$$(GOFLAGS) $$(LDFLAGS) \
+				$$(OBJS_SRC_PKG_$1); \
 		$$(PRINT_STATUS)
 endef
-$(foreach b,$(BUILD_PLATFORMS),$(eval $(call BUILD_TARGET,$(b))))
-build-all:
 
+define BUILD_PLATFORM_TARGET
+BLD_$1 := 		$$(BINDIR)/$1
+BIN_FILE_$1 := 	$$(TGT)
+BIN_$1 := 		$$(BLD_$1)/$$(BIN_FILE_$1)
 
-tgz: $(TGZ)
-$(TGZ): $(BIN)
-	@printf "creating $(TGZ_FILE)..."
-	@cd $(BASEDIR); \
-		tar -C $(BLD) -czf $(TGZ) $(BIN_FILE); \
-		$(PRINT_STATUS)
-		
-tgz-latest: $(TGZ_LATEST)
-$(TGZ_LATEST):
-	@printf "creating $(TGZ_FILE_LATEST)..."
-	@cd $(BLD); \
-		cp -f $(TGZ_FILE) $(TGZ_FILE_LATEST); \
-		$(PRINT_STATUS)
+TGZ_FILE_$1 := 			$$(BIN_FILE_$1)-$1.$$(V_SEMVER).tar.gz
+TGZ_FILE_LATEST_$1 := 	$$(BIN_FILE_$1)-$1.tar.gz
+TGZ_$1 :=				$$(BLD_$1)/$$(TGZ_FILE_$1)
+TGZ_LATEST_$1 := 		$$(BLD_$1)/$$(TGZ_FILE_LATEST_$1)
 
-ifeq (Linux,$(UNAME_S))
-rpm: $(RPM)
-$(RPM): $(BIN) rexray.spec
-	@printf "creating $(RPM_FILE)..."
-	@cd $(BASEDIR); \
-		rm -fr $(RPMBUILD); \
-		mkdir -p $(RPMBUILD)/BUILD \
-				 $(RPMBUILD)/RPMS \
-				 $(RPMBUILD)/SRPMS \
-				 $(RPMBUILD)/SOURCES \
-				 $(RPMBUILD)/tmp; \
-		ln -s ../../$(BLD) $(RPMBUILD)/RPMS/$(V_ARCH); \
-		ln -s .. $(RPMBUILD)/SPECS; \
-		cd $(RPMBUILD); \
-		setarch $(V_ARCH) rpmbuild -ba --quiet \
-			-D "rpmbuild $(CWD)/$(RPMBUILD)" \
-			-D "v_semver $(V_RPM_SEMVER)" \
-			-D "v_arch $(V_ARCH)" \
-			-D "rexray $(CWD)/$(BIN)" \
+RPM_FILE_$1 := 			$$(BIN_FILE_$1)-$$(V_RPM_SEMVER)-1.$$(V_ARCH).rpm
+RPM_FILE_LATEST_$1 :=	$$(BIN_FILE_$1)-latest-$$(V_ARCH).rpm
+RPM_$1 :=				$$(BLD_$1)/$$(RPM_FILE_$1)
+RPM_LATEST_$1 :=		$$(BLD_$1)/$$(RPM_FILE_LATEST_$1)
+
+DEB_FILE_$1 := 			$$(BIN_FILE_$1)_$$(V_RPM_SEMVER)-1_amd64.deb
+DEB_FILE_LATEST_$1 :=	$$(BIN_FILE_$1)-latest-$$(V_ARCH).deb
+DEB_$1 :=				$$(BLD_$1)/$$(DEB_FILE_$1)
+DEB_LATEST_$1 :=		$$(BLD_$1)/$$(DEB_FILE_LATEST_$1)
+
+V_OS_ARCH_$1 :=	$1
+V_OS_$1 := 		$$(firstword $$(subst -, ,$$(V_OS_ARCH_$1)))
+V_ARCH_$1 :=	$$(lastword $$(subst -, ,$$(V_OS_ARCH_$1)))
+GOOS_$1 :=		$$(call GET_GOOS,$$(V_OS_$1))
+GOARCH_$1 :=	$$(call GET_GOARCH,$$(V_ARCH_$1))
+
+PKG_DIR_$1 :=	.obj/$$(V_OS_ARCH_$1)
+
+OBJS_PREFIX_$1 := $$(GOPATH)/pkg/$$(GOOS_$1)_$$(GOARCH_$1)/$$(BASEPKG)
+OBJS_$1 := $$(OBJS_PREFIX_$1).a $$(addsuffix .a,$$(addprefix $$(OBJS_PREFIX_$1),$$(PKGS)))
+$$(foreach o,$$(OBJS_$1),$$(eval $$(call OBJS_TARGET,$$(o),$$(OBJS_PREFIX_$1),$$(GOOS_$1),$$(GOARCH_$1))))
+
+build-$$(V_OS_ARCH_$1): $$(BIN_$1)
+build-$$(GOOS_$1)-$$(GOARCH_$1): $$(BIN_$1)
+$$(BIN_$1): $$(OBJS_$1)
+	@$$(call START_STATUS,$$(BIN_$1)); \
+		cd $$(BASEDIR); \
+		env GOOS=$$(GOOS_$1) \
+			GOARCH=$$(GOARCH_$1) \
+			$$(GO) build \
+				-o $$(BIN_$1) \
+				$$(GOFLAGS) $$(LDFLAGS) \
+				./$$(TGT); \
+		$$(PRINT_STATUS)
+
+tgz-$$(V_OS_ARCH_$1): $$(TGZ_$1)
+tgz-$$(GOOS_$1)-$$(GOARCH_$1): $$(TGZ_$1)
+$$(TGZ_$1): $$(BIN_$1)
+	@$$(call START_STATUS,$$(TGZ_$1)); \
+		cd $$(BASEDIR); \
+		tar -C $$(BLD_$1) -czf $$(TGZ_$1) $$(BIN_FILE_$1); \
+		$$(PRINT_STATUS)
+
+tgz-latest-$$(V_OS_ARCH_$1): $$(TGZ_LATEST_$1)
+tgz-latest-$$(GOOS_$1)-$$(GOARCH_$1): $$(TGZ_LATEST_$1)
+$$(TGZ_LATEST_$1): $$(TGZ_$1)
+	@$$(call START_STATUS,$$(TGZ_LATEST_$1)); \
+		cd $$(BLD_$1); \
+		cp -f $$(TGZ_FILE_$1) $$(TGZ_FILE_LATEST_$1); \
+		$$(PRINT_STATUS)
+
+rpm-$$(V_OS_ARCH_$1): $$(RPM_$1)
+rpm-$$(GOOS_$1)-$$(GOARCH_$1): $$(RPM_$1)
+$$(RPM_$1): $$(BIN_$1) rexray.spec
+ifeq ($$(V_OS),Linux)
+	@$$(call START_STATUS,$$(RPM_$1)); \
+		cd $$(BASEDIR); \
+		rm -fr $$(RPMDIR); \
+		mkdir -p $$(RPMDIR)/BUILD \
+				 $$(RPMDIR)/RPMS \
+				 $$(RPMDIR)/SRPMS \
+				 $$(RPMDIR)/SOURCES \
+				 $$(RPMDIR)/tmp; \
+		ln -s ../../$$(BLD_$1) $$(RPMDIR)/RPMS/$$(V_ARCH_$1); \
+		ln -s .. $$(RPMDIR)/SPECS; \
+		cd $$(RPMDIR); \
+		setarch $$(V_ARCH_$1) rpmbuild -ba --quiet \
+			-D "rpmbuild $$(CWD)/$$(RPMDIR)" \
+			-D "v_semver $$(V_RPM_SEMVER)" \
+			-D "v_arch $$(V_ARCH_$1)" \
+			-D "rexray $$(CWD)/$$(BIN_$1)" \
 			../rexray.spec; \
-		$(PRINT_STATUS)
-		
-rpm-latest: $(RPM_LATEST)
-$(RPM_LATEST):
-	@printf "creating $(RPM_FILE_LATEST)..."
-	@cd $(BLD); \
-		cp -f $(RPM_FILE) $(RPM_FILE_LATEST); \
-		$(PRINT_STATUS)
-
-deb: $(DEB)
-$(DEB): $(RPM)
-	@printf "creating $(DEB_FILE)..."
-	@cd $(BLD); \
-		fakeroot alien -k -c --bump=0 $(RPM_FILE) > /dev/null; \
-		$(PRINT_STATUS)
-		
-deb-latest: $(DEB_LATEST)
-$(DEB_LATEST):
-	@printf "creating $(DEB_FILE_LATEST)..."
-	@cd $(BLD); \
-		cp -f $(DEB_FILE) $(DEB_FILE_LATEST); \
-		$(PRINT_STATUS)
+		$$(PRINT_STATUS)
 endif
+		
+rpm-latest-$$(V_OS_ARCH_$1): $$(RPM_LATEST_$1)
+rpm-latest-$$(GOOS_$1)-$$(GOARCH_$1): $$(RPM_LATEST_$1)
+$$(RPM_LATEST_$1): $$(RPM_$1)
+ifeq ($$(V_OS),Linux)
+	@$$(call START_STATUS,$$(RPM_LATEST_$1)); \
+		cd $$(BLD_$1); \
+		cp -f $$(RPM_FILE_$1) $$(RPM_FILE_LATEST_$1); \
+		$$(PRINT_STATUS)
+endif
+		
+deb-$$(V_OS_ARCH_$1): $$(DEB_$1)
+deb-$$(GOOS_$1)-$$(GOARCH_$1): $$(DEB_$1)
+$$(DEB_$1): $$(RPM_$1)
+ifeq ($$(V_OS),Linux)
+	@$$(call START_STATUS,$$(DEB_$1)); \
+		cd $$(BLD_$1); \
+		fakeroot alien -k -c --bump=0 $$(RPM_FILE_$1) > /dev/null; \
+		$$(PRINT_STATUS)
+endif
+		
+deb-latest-$$(V_OS_ARCH_$1): $$(DEB_LATEST_$1)
+deb-latest-$$(GOOS_$1)-$$(GOARCH_$1): $$(DEBLATEST_$1)
+$$(DEB_LATEST_$1): $$(DEB_$1)
+ifeq ($$(V_OS),Linux)
+	@$$(call START_STATUS,$$(DEB_LATEST_$1)); \
+		cd $$(BLD_$1); \
+		cp -f $$(DEB_FILE_$1) $$(DEB_FILE_LATEST_$1); \
+		$$(PRINT_STATUS)
+endif
+endef
+$(foreach b,$(BUILD_PLATFORMS),$(eval $(call BUILD_PLATFORM_TARGET,$(b))))
+build: build-$(V_OS_ARCH)
+tgz: tgz-$(V_OS_ARCH)
+rpm: rpm-$(V_OS_ARCH)
+deb: deb-$(V_OS_ARCH)
+tgz-latest: tgz-latest-$(V_OS_ARCH)
+rpm-latest: rpm-latest-$(V_OS_ARCH)
+deb-latest: deb-latest-$(V_OS_ARCH)
 
 define TEST_TARGET
 $1: $$(SRCS) $$(wildcard $$(dir $1)*test.go)
@@ -370,21 +376,13 @@ deploy-prep:
 			.bintray-stable.json > .bintray-stable-filtered.json;\
 		printf "SUCCESS!\n"
 
-install:
-_install: _deps _fmt
-	@echo "target: install"
-	@printf "  ...installing rexray $(V_OS_ARCH)..."; \
+goinstall: $(GOPATH)/bin/$(TGT)
+$(GOPATH)/bin/$(TGT): $(DEPS) $(SOURCES)
+	@$(call START_STATUS,$(GOPATH)/bin/$(TGT)); \
 		cd $(BASEDIR); \
 		go clean -i $(VERSIONPKG); \
-		go install $(GOFLAGS) $(LDFLAGS) $(NV); \
-		$(PRINT_STATUS); \
-		if [ "$$EC" -eq "0" ]; then \
-			FILE=$(GOPATH)/bin/rexray; \
-			BYTES=$$($(STAT_FILE_SIZE)); \
-			SIZE=$$(($$BYTES / 1024 / 1024)); \
-			printf "\nThe REX-Ray binary is $${SIZE}MB and located at:\n\n"; \
-			printf "  $$FILE\n\n"; \
-		fi
+		go install $(GOFLAGS) $(LDFLAGS) ./$(TGT); \
+		$(PRINT_STATUS)
 
 bench:
 	@echo "target: bench"
@@ -397,7 +395,7 @@ clean:
 	@echo "target: clean"; \
 		rm -fr $(BLD)
 		
-version:
+print-version:
 	@echo SemVer: $(V_SEMVER)
 	@echo RpmVer: $(V_RPM_SEMVER)
 	@echo Binary: $(V_OS_ARCH)
@@ -405,7 +403,7 @@ version:
 	@echo Commit: $(V_SHA_LONG)
 	@echo Formed: $(V_BUILD_DATE)
 	
-version-noarch:
+print-version-noarch:
 	@echo SemVer: $(V_SEMVER)
 	@echo RpmVer: $(V_RPM_SEMVER)
 	@echo Branch: $(V_BRANCH)
@@ -413,82 +411,3 @@ version-noarch:
 	@echo Formed: $(V_BUILD_DATE)
 	@echo
 
-rpm1: 
-	@echo "target: rpm"
-	@printf "  ...building rpm $(V_ARCH)..."; \
-		mkdir -p .deploy/latest; \
-		rm -fr $(RPMBUILD); \
-		mkdir -p $(RPMBUILD)/BUILD \
-				 $(RPMBUILD)/RPMS \
-				 $(RPMBUILD)/SRPMS \
-				 $(RPMBUILD)/SPECS \
-				 $(RPMBUILD)/SOURCES \
-				 $(RPMBUILD)/tmp; \
-		cp rexray.spec $(RPMBUILD)/SPECS/rexray.spec; \
-		cd $(RPMBUILD); \
-		setarch $(V_ARCH) rpmbuild -ba --quiet \
-			-D "rpmbuild $(RPMBUILD)" \
-			-D "v_semver $(V_RPM_SEMVER)" \
-			-D "v_arch $(V_ARCH)" \
-			-D "rexray $(CWD)/.bin/$(V_OS_ARCH)/rexray" \
-			SPECS/rexray.spec; \
-		$(PRINT_STATUS); \
-		if [ "$$EC" -eq "0" ]; then \
-			FILE=$$(readlink -f $$(find $(RPMBUILD)/RPMS -name *.rpm)); \
-			DEPLOY_FILE=.deploy/$(V_OS_ARCH)/$$(basename $$FILE); \
-			mkdir -p .deploy/$(V_OS_ARCH); \
-			rm -f .deploy/$(V_OS_ARCH)/*.rpm; \
-			mv -f $$FILE $$DEPLOY_FILE; \
-			FILE=$$DEPLOY_FILE; \
-			cp -f $$FILE .deploy/latest/rexray-latest-$(V_ARCH).rpm; \
-			BYTES=$$($(STAT_FILE_SIZE)); \
-			SIZE=$$(($$BYTES / 1024 / 1024)); \
-			printf "\nThe REX-Ray RPM is $${SIZE}MB and located at:\n\n"; \
-			printf "  $$FILE\n\n"; \
-		fi
-
-rpm-linux-386:
-	@if [ "" != "$(findstring Linux-i386,$(BUILD_PLATFORMS))" ]; then \
-		env _GOOS=linux _GOARCH=386 make rpm; \
-	fi
-
-rpm-linux-amd64:
-	@if [ "" != "$(findstring Linux-x86_64,$(BUILD_PLATFORMS))" ]; then \
-		env _GOOS=linux _GOARCH=amd64 make rpm; \
-	fi
-	
-rpm-all: rpm-linux-386 rpm-linux-amd64
-
-deb1:
-	@echo "target: deb"
-	@printf "  ...building deb $(V_ARCH)..."; \
-		cd .deploy/$(V_OS_ARCH); \
-		rm -f *.deb; \
-		fakeroot alien -k -c --bump=0 *.rpm > /dev/null; \
-		$(PRINT_STATUS); \
-		if [ "$$EC" -eq "0" ]; then \
-			FILE=$$(readlink -f $$(find .deploy/$(V_OS_ARCH) -name *.deb)); \
-			DEPLOY_FILE=.deploy/$(V_OS_ARCH)/$$(basename $$FILE); \
-			FILE=$$DEPLOY_FILE; \
-			cp -f $$FILE .deploy/latest/rexray-latest-$(V_ARCH).deb; \
-			BYTES=$$($(STAT_FILE_SIZE)); \
-			SIZE=$$(($$BYTES / 1024 / 1024)); \
-			printf "\nThe REX-Ray DEB is $${SIZE}MB and located at:\n\n"; \
-			printf "  $$FILE\n\n"; \
-		fi
-
-deb-linux-amd64: 
-	@if [ "" != "$(findstring Linux-x86_64,$(BUILD_PLATFORMS))" ]; then \
-		env _GOOS=linux _GOARCH=amd64 make deb; \
-	fi
-
-deb-all: deb-linux-amd64
-
-test1: install
-	@echo "target: test"
-	@printf "  ...testing rexray ..."; \
-		cd $(BASEDIR); \
-		./test.sh; \
-		$(PRINT_STATUS)
-
-.PHONY: all
