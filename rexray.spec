@@ -24,7 +24,7 @@ and storage platforms.
 %build
 
 %install
-install -D %{rexray} $RPM_BUILD_ROOT/usr/bin/rexray
+install -D %{binfile} $RPM_BUILD_ROOT/usr/bin/rexray
 
 %post
 /usr/bin/rexray install 1> /dev/null
