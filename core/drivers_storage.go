@@ -2,6 +2,8 @@ package core
 
 import (
 	"bytes"
+	"sync"
+
 	"github.com/emccode/rexray/core/errors"
 )
 
@@ -260,11 +262,17 @@ func (r *sdm) GetVolumeMapping() ([]*BlockDevice, error) {
 func (r *sdm) GetInstances() ([]*Instance, error) {
 	cI := make(chan *Instance)
 	cE := make(chan error)
-	done := make(chan int)
+	defer close(cI)
+	defer close(cE)
 
+	done := make(chan int)
+	var wg sync.WaitGroup
+
+	wg.Add(len(r.drivers))
 	go func() {
 		for _, d := range r.drivers {
 			go func(d StorageDriver) {
+				defer wg.Done()
 				var e error
 				var i *Instance
 				i, e = d.GetInstance()
@@ -275,8 +283,10 @@ func (r *sdm) GetInstances() ([]*Instance, error) {
 				}
 			}(d)
 		}
-		close(cI)
-		close(cE)
+	}()
+
+	go func() {
+		wg.Wait()
 		done <- 1
 	}()
 

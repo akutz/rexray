@@ -31,6 +31,7 @@ func newDriver() core.Driver {
 
 func (d *driver) Init(r *core.RexRay) error {
 	if runtime.GOOS == "linux" {
+		d.r = r
 		log.WithField("provider", providerName).Debug(
 			"os driver initialized")
 		return nil
@@ -101,7 +102,7 @@ func (d *driver) Format(
 	var fsDetected bool
 
 	fsType, err := probeFsType(deviceName)
-	if err == errors.ErrUnknownFileSystem {
+	if err != nil && err != errors.ErrUnknownFileSystem {
 		return err
 	}
 	if fsType != "" {

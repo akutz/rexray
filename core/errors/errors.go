@@ -172,9 +172,9 @@ func (e *RexRayErr) Error() string {
 	case ErrCodeNotImplemented:
 		return "not implemented"
 	case ErrCodeUnknownOS:
-		return "uknown OS"
+		return "unknown OS"
 	case ErrCodeUnknownFileSystem:
-		return "uknown OS"
+		return "unknown file system"
 	case ErrCodeMissingVolumeID:
 		return "missing volume ID"
 	case ErrCodeMultipleVolumesReturned:

@@ -77,10 +77,6 @@ func (d *driver) Init(r *core.RexRay) error {
 
 	fields["instanceId"] = d.instanceID
 
-	if d.region, err = getInstanceRegion(d.r.Config); err != nil {
-		return err
-	}
-
 	if d.r.Config.OpenstackRegionName == "" {
 		if d.region, err = getInstanceRegion(d.r.Config); err != nil {
 			return err
@@ -91,7 +87,7 @@ func (d *driver) Init(r *core.RexRay) error {
 	fields["region"] = d.region
 
 	if d.r.Config.OpenstackAvailabilityZoneName == "" {
-		if d.region, err = getInstanceAvailabilityZone(); err != nil {
+		if d.availabilityZone, err = getInstanceAvailabilityZone(); err != nil {
 			return err
 		}
 	} else {

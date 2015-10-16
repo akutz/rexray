@@ -1,5 +1,6 @@
 .build/*/
 .build/*-filtered.json
+.deploy/*
 vendor/
 .project
 
