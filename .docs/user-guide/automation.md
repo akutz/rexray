@@ -64,6 +64,41 @@ ToDo
 ToDo
 
 <br>
+## Docker Machine (VirtualBox)
+You can use the Docker Machine ssh capabilities to remotely install REX-Ray.
+ We are showing the VirtualBox based configuration, but you can update the
+ `config.yml` file as displayed below per the correct driver.
+ The only suggestion for VirtualBox would be to replace the `volumePath`
+ parameter with the local path that VirtualBox would be storing your virtual
+ media disks.
+```bash
+docker-machine ssh testing1 \
+ "curl -sSL https://dl.bintray.com/emccode/rexray/install | sh -"
+
+// not needed for boot2docker 1.10+
+docker-machine ssh testing1 \
+  "wget http://tinycorelinux.net/6.x/x86_64/tcz/udev-extra.tcz \
+    && tce-load -i udev-extra.tcz && sudo udevadm trigger"
+
+docker-machine ssh testing1 \
+ "sudo tee -a /etc/rexray/config.yml << EOF
+rexray:
+  storageDrivers:
+  - virtualbox
+  volume:
+    mount:
+      preempt: false
+virtualbox:
+  endpoint: http://10.0.2.2:18083
+  tls: false
+  volumePath: /Users/YourUser/VirtualBox Volumes
+  controllerName: SATA
+"
+
+docker-machine ssh testing1 "sudo rexray start"
+```
+
+<br>
 ## OpenStack Heat
 Using OpenStack Heat, in the HOT template format (yaml):
 
