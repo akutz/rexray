@@ -65,22 +65,34 @@ ToDo
 
 <br>
 ## Docker Machine (VirtualBox)
-You can use the Docker Machine ssh capabilities to remotely install REX-Ray.
- We are showing the VirtualBox based configuration, but you can update the
- `config.yml` file as displayed below per the correct driver.
- The only suggestion for VirtualBox would be to replace the `volumePath`
- parameter with the local path that VirtualBox would be storing your virtual
- media disks.
-```bash
-docker-machine ssh testing1 \
- "curl -sSL https://dl.bintray.com/emccode/rexray/install | sh -"
+SSH can be used to remotely deploy REX-Ray to a Docker Machine. While the
+following example used VirtualBox as the underlying storage platform, the
+provided `config.yml` file *could* be modified to use any of the supported
+drivers.
 
-// not needed for boot2docker 1.10+
-docker-machine ssh testing1 \
+### Step 1 - Install REX-Ray
+SSH into the Docker machine and install REX-Ray.
+```bash
+$ docker-machine ssh testing1 \
+ "curl -sSL https://dl.bintray.com/emccode/rexray/install | sh -"
+```
+
+### Step 2 - Install udev Extras (Optional)
+This step is not needed for boot2docker 1.10+, but for older versions the
+`udev-extra` package needs to be installed.
+```bash
+$ docker-machine ssh testing1 \
   "wget http://tinycorelinux.net/6.x/x86_64/tcz/udev-extra.tcz \
     && tce-load -i udev-extra.tcz && sudo udevadm trigger"
+```
 
-docker-machine ssh testing1 \
+### Step 3 - Configure REX-Ray
+Create a basic REX-Ray configuration file inside the Docker machine.
+
+**Note**: It is recommended to replace the `volumePath` parameter with the
+local path VirtualBox uses to store its virtual media disk files.
+```bash
+$ docker-machine ssh testing1 \
  "sudo tee -a /etc/rexray/config.yml << EOF
 rexray:
   storageDrivers:
@@ -94,8 +106,12 @@ virtualbox:
   volumePath: /Users/YourUser/VirtualBox Volumes
   controllerName: SATA
 "
+```
 
-docker-machine ssh testing1 "sudo rexray start"
+### Step 4 - Start the REX-Ray Service
+Finally, start the REX-Ray service inside the Docker machine.
+```bash
+$ docker-machine ssh testing1 "sudo rexray start"
 ```
 
 <br>
