@@ -9,6 +9,9 @@ import (
 	"github.com/emccode/rexray/util"
 )
 
+type JsonObject struct {
+}
+
 func init() {
 	initDrivers()
 	gofig.SetGlobalConfigPath(util.EtcDirPath())
