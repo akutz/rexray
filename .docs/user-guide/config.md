@@ -9,23 +9,13 @@ This page reviews how to configure REX-Ray to suit any environment, beginning
 with the the most common use cases, exploring recommended guidelines, and
 finally, delving into the details of more advanced settings.
 
-## Basic Configuration
-This section outlines the three most common configuration scenarios encountered
-by REX-Ray's users:
-
- 1. REX-Ray as a stand-alone CLI tool
- 2. REX-Ray as a service, hosting a libStorage server
- 3. REX-Ray as a CLI client for a libStorage endpoint
-
 !!! note "note"
 
     Please remember to replace the placeholders in the following examples
     with values valid for the systems on which the examples are executed.
+    We provide explicit examples here for the `VirtualBox` driver.
 
-    The example below specifies the `volumePath` property as
-    `$HOME/VirtualBox/Volumes`. While the text `$HOME` will be replaced with
-    the actual value for that environment variable at runtime, the path may
-    still be invalid. The `volumePath` property should reflect a path on the
+    The `volumePath` property should reflect a path on the
     system on which the VirtualBox server is running, and that is not always
     the same system on which the `libStorage` server is running.
 
@@ -35,6 +25,13 @@ by REX-Ray's users:
 
     The same goes for VirtualBox property `endpoint` as the VirtualBox
     web service is not always available at `10.0.2.2:18083`.
+
+## Basic Configuration
+This section outlines the two most common configuration scenarios encountered
+by REX-Ray's users:
+
+ 1. REX-Ray as a stand-alone CLI tool
+ 2. REX-Ray as a service
 
 ### Stand-alone CLI Mode
 It is possible to use REX-Ray directly from the command line without any
@@ -49,7 +46,7 @@ volumes available to a Linux VM hosted by VirtualBox:
     [documentation](http://libstorage.readthedocs.io/en/stable/user-guide/storage-providers/#virtualbox).
 
 ```sh
-$ rexray volume --service virtualbox
+$ rexray volume get --service virtualbox
 - attachments:
   - instanceID:
       id: e71578b0-1bfb-4fa5-bcd5-4ae982fd4a9b
@@ -63,15 +60,35 @@ $ rexray volume --service virtualbox
   type: ""
 ```
 
-When operating as a stand-alone CLI, REX-Ray actually loads an embedded
-libStorage server for the duration of the CLI process, accessible only via a
-local UNIX socket, which is then used by the REX-Ray CLI libStorage client to
-retrieve a list of the VirtualBox volumes.
+In addition to listing volumes, the CLI mode can perform operations including
+those that create and remove volumes and snapshots.
 
-#### Auto Service Mode
-Please also notice the use of the `--service` flag. This flag's argument sets
+### Services
+There are two details that must be configured before looking into services
+deeper. The `embedded server` and `auto services` section describe some of
+things that make configuring REX-Ray as a service easier but is optional as
+you will see later in the more advanced examples.
+
+#### Embedded Server Mode
+REX-Ray can be configured separately as a client and a server. But for
+simplicity, the `embedded` mode can be used if both the `client integration`
+activity and the `storage abstraction` responsibilities are being served
+by the same REX-Ray instance. This means by default a temporary UNIX socket is
+established that both the client and server side of REX-Ray communicate with one
+another on. This mode does not advertise the libStorage server or API in a
+static manner.
+
+#### Auto Services Mode
+Notice the `libstorage.service` definition in the configuration and the
+`--service`  paramater specified in the CLI example. This flag's argument sets
 the `libstorage.service` property, which has a special meaning inside of
-REX-Ray. The value of the `libstorage.service` property is used to create a
+REX-Ray.
+
+Services represent unique libStorage endpoints that are available to libStorage
+clients. Each service is associated with a storage driver. The `auto service
+mode` minimizes configuration for simple environments.
+
+The value of the `libstorage.service` property is used to create a
 default service configured with a storage driver. This special mode is only
 activated if all of the following conditions are met:
 
@@ -88,54 +105,129 @@ activated if all of the following conditions are met:
 
 Because the above example met the auto service mode conditions, REX-Ray
 created a service named `virtualbox` configured to use the `virtualbox` driver.
-This service runs on the libStorage server embedded inside of REX-Ray and is
-accessible only by the executing CLI process for the duration of said process.
 When used in this manner, the service name must also be a valid driver name.
 
-The stand-alone CLI is not just limited to fetch operations; it can also create
-new volumes. For example:
+#### Service Modes
+Running as a service is the most common approach to running REX-Ray. This method
+involves advertising two separate types of APIs when running as a service.
 
-!!! note "note"
+1. Docker Volume Plugin
+2. libStorage Server and Client
 
-    The VM on which this example is being executed must be configured to have
-    more than one available port via the VM's VirtualBox settings panel. Also
-    remember to replace the placeholder `$HOME/VirtualBox/Volumes` with the path
-    on the host OS where VirtualBox stores its volumes.
-    Please refer to the VirtualBox
-    [documentation](http://libstorage.readthedocs.io/en/stable/user-guide/storage-providers/#virtualbox)
-    for more information.
+### Docker Volume Plugin
+This method relates to the only operational mode that REX-Ray supported with
+0.3.3 and prior. A UNIX socket is created by REX-Ray that serves as a
+Docker Volume Plugin compliant API endpoint. All requests handled using this
+communication path which enable volumes to be delivered on demand to Docker
+and supporting platforms.
 
-```sh
-$ rexray volume create --service virtualbox \
-                       --virtualboxVolumePath $HOME/VirtualBox/Volumes \
-                       --size 1 \
-                       --volumename Data
-name: Data
-size: 1
-id: 371eb252-7907-42d8-ae5e-e49dc695b83d
-type: HardDisk
-```
-
-While the stand-alone CLI is powerful, it does not compare to what can be
-accomplished when it is paired with a libStorage server.
-
-### Service Mode
-REX-Ray can also run as a persistent service either locally or on a remote
-system. The client/server architecture provides centralized configuration for
-large deployments -- simply set up a single REX-Ray server to access the
-required storage platforms and the remaining nodes need only run the REX-Ray
-client.
-
-#### Example sans Modules
-The first step to running REX-Ray as a service is to create a configuration
-file at `/etc/rexray/config.yml`. This is the global settings file for REX-Ray,
-and is used whether the program is used as a command line interface (CLI)
-application or started as a service. Please see the
+The following is a simple example of a configuration file that can be placed at
+`/etc/rexray/config.yml`. This is the first time we have introduced this file,
+which can be used to configure the same options that were specified in the
+previous CLI example. Please see the
 [advanced section](./config.md#advanced-configuration) for a complete list of
 configuration options.
 
-The following, sample configuration mimics the same options discussed in the
-previous section when running REX-Ray as a stand-alone CLI:
+```yaml
+libstorage:
+  service: virtualbox
+virtualbox:
+  volumePath: /Users/your_user/VirtualBox Volumes
+```
+
+Following this a `rexray start` will start the service. At any point a debug
+logging flag can be set with `-l debug` to expose more detailed information
+related to failures. Sometimes it is also beneficial to start the service
+in the foreground with a `-f` flag.
+
+```sh
+$ rexray start
+
+Starting REX-Ray...SUCCESS!
+
+  The REX-Ray daemon is now running at PID 15724. To
+  shutdown the daemon execute the following command:
+
+    sudo /go/bin/rexray stop
+```
+
+At this point requests can now be made to the default Docker Volume Plugin
+and Volume Driver advertised by the name `rexray` existing at
+`/run/docker/plugins/rexray.sock`. You can review the
+[schedulers](./schedulers) section for more details on usage.
+
+The previous examples of CLI and service mode represent the usage of two
+additional features, `auto service` and `embedded` mode. The features were
+configured implicitly based on the combination of parameters specified.
+
+### libStorage Server and Client
+Although the libStorage API is being used in the `embedded` mode within the
+REX-Ray process, it is possible to expose the libStorage API for integration
+purposes. This enables REX-Ray to serve as a libStorage server and perform
+purely the storage abstraction role.
+
+If the desire is to establish a centralized REX-Ray instance that is called
+on from remote REX-Ray instances then the following example will be useful.
+The first configuration is for running REX-Ray purely as a `libStorage server`.
+The second defines how you would run REX-Ray(s) in a `libStorage client` role.
+These examples require multiple OS instances to fulfill these different roles.
+
+#### libStorage Server
+We can expose REX-Ray to serve the storage abstraction role by defining
+a few key parameters below. First, if we wish to disable the default Docker
+module Volume Plugin, we would disable the `default-docker` module. The next
+section within `libstorage` defines the server specific settings. The `host`
+parameter will define the endpoint that is advertised which here is open to
+all network interfaces at TCP port `7980`. The `client` flag determines that
+the instance is only a `controller` and does not perform integration related
+tasks which require introspection level activities.
+
+```yaml
+rexray:
+  modules:
+    default-docker:
+      disabled: true
+libstorage:
+  host: tcp://:7980
+  embedded: true
+  client:
+    type: controller
+  server:
+    services:
+      virtualbox:
+        driver: virtualbox
+virtualbox:
+  volumePath: /Users/your_user/VirtualBox Volumes
+```
+
+Start the REX-Ray process as normal with `rexray start`.
+
+#### libStorage Client
+The client is rather simple to configure at this point. See the following
+example. On a separate OS instance running REX-Ray, we have defined two things.
+The first is `libstorage.host` which points this instance to the proper
+endpoint.
+
+```yaml
+libstorage:
+  host: tcp://rexray_server_ip:7980
+  service: virtualbox  
+```
+
+Start the REX-Ray process as normal with `rexray start`. You should then be able
+to see that the socket file has been created under the default location and
+name. Note that REX-Ray is running as a service, but it did not start a
+libStorage server, it is connecting to a remote instance as a client.
+
+```sh
+$ ls /run/docker/plugins/
+
+rexray.sock
+```
+
+
+### Example sans Modules
+Lets review the major sections of the configuration file.
 
 ```yaml
 rexray:
@@ -176,10 +268,51 @@ libStorage Storage Drivers page has information about the configuration details
 of [each driver](http://libstorage.readthedocs.io/en/stable/user-guide/storage-providers),
 including [VirtualBox](http://libstorage.readthedocs.io/en/stable/user-guide/storage-providers/#virtualbox).
 
-#### Example with Modules
+### Logging
+The `-l|--logLevel` option or `rexray.logLevel` configuration key can be set
+to any of the following values to increase or decrease the verbosity of the
+information logged to the console or the REX-Ray log file (defaults to
+`/var/log/rexray/rexray.log`).
+
+- panic
+- fatal
+- error
+- warn
+- info
+- debug
+
+### Troubleshooting
+The command `rexray env` can be used to print out the runtime interpretation
+of the environment, including configured properties, in order to help diagnose
+configuration issues.
+
+```
+$ rexray env | grep DEFAULT | sort -r
+REXRAY_MODULES_DEFAULT-DOCKER_TYPE=docker
+REXRAY_MODULES_DEFAULT-DOCKER_SPEC=/etc/docker/plugins/rexray.spec
+REXRAY_MODULES_DEFAULT-DOCKER_LIBSTORAGE_SERVICE=vfs
+REXRAY_MODULES_DEFAULT-DOCKER_HOST=unix:///run/docker/plugins/rexray.sock
+REXRAY_MODULES_DEFAULT-DOCKER_DISABLED=false
+REXRAY_MODULES_DEFAULT-DOCKER_DESC=The default docker module.
+REXRAY_MODULES_DEFAULT-ADMIN_TYPE=admin
+REXRAY_MODULES_DEFAULT-ADMIN_HOST=unix:///var/run/rexray/server.sock
+REXRAY_MODULES_DEFAULT-ADMIN_DISABLED=false
+REXRAY_MODULES_DEFAULT-ADMIN_DESC=The default admin module.
+LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_TYPE=
+LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_SIZE=16
+LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_IOPS=
+LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_FSTYPE=ext4
+LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_AVAILABILITYZONE=
+```
+
+## Advanced Configuration
+The following sections detail more advanced configurations and every last
+aspect of how REX-Ray works and can be configured.
+
+### Example with Modules
 Modules enable a single REX-Ray instance to present multiple personalities or
 volume endpoints, serving hosts that require access to multiple storage
-platforms.
+platforms or the same platform with multiple default configurations.
 
 #### Defining Modules
 The following example demonstrates a basic configuration that presents two
@@ -192,15 +325,9 @@ rexray:
     default-docker:
       type: docker
       desc: The default docker module.
-      host: unix:///run/docker/plugins/vb1.sock
+      host: unix:///run/docker/plugins/rexray.sock
       libstorage:
         service: virtualbox
-        integration:
-          volume:
-            operations:
-              create:
-                default:
-                  size: 1
       virtualbox:
         volumePath: $HOME/VirtualBox/Volumes
     vb2-module:
@@ -221,8 +348,8 @@ libstorage:
   service: virtualbox
 ```
 
-Whereas the previous example did not use modules and the example above does,
-they both begin by defining the root section `rexray`. Unlike the previous
+Whereas the previous examples did not use multiple modules and the example above
+does, they both begin by defining the root section `rexray`. Unlike the previous
 example, however, the majority of the `libstorage` section and all of the
 `virtualbox` section are no longer at the root. Instead the section
 `rexray.modules` is defined. The `modules` key in the `rexray` section is where
@@ -267,7 +394,7 @@ As noted, each module shares identical values with the exception of the module's
 name and host. The host is the address used by Docker to communicate with
 REX-Ray. The base name of the socket file specified in the address can be
 used with `docker --volume-driver=`. With the current example the value of the
-`--volume-driver` parameter would be either `vb1` of `vb2`.
+`--volume-driver` parameter would be either `rexray` of `vb2`.
 
 #### Modules and Inherited Properties
 There is also another way to write the previous example while reducing the
@@ -278,7 +405,7 @@ rexray:
   logLevel: warn
   modules:
     default-docker:
-      host: unix:///run/docker/plugins/vb1.sock
+      host: unix:///run/docker/plugins/rexray.sock
       libstorage:
         integration:
           volume:
@@ -317,56 +444,122 @@ module will result in 1GB volumes whereas the same request sent to the `vb2`
 module will result in 16GB volumes (since 16GB is the default value for the
 `libstorage.integration.volume.operations.create.default.size` property).
 
-#### Defining Service Endpoints
+### Defining Service Endpoints
+Multiple libStorage services can be defined which enable multiple drivers
+and driver configurations to be leveraged. The following configuration is a bit
+more in depth but takes advantage of the service endpoints through
+`libstorage.server.services`. Each service is then assigned to a driver.
 
-#### Activating Embedded Mode
+Once the services have been defined, it is then up to the modules to specify
+which service to attach to. Notice how the `default-docker` module specifies
+the `virtualbox` service as its `libstorage.service`. Any requests that come
+through the UNIX socket and module will end up at this defined service.
 
-### Client Mode
-In both the [Stand-alone CLI](#stand-alone-cli-mode) and
-[Service](#service-mode) modes REX-Ray launches an embedded libStorage server.
-In _Client Mode_, REX-Ray does **not** start a libStorage server, but instead
-connects to an existing libStorage endpoint.
-
-### Logging
-The `-l|--logLevel` option or `rexray.logLevel` configuration key can be set
-to any of the following values to increase or decrease the verbosity of the
-information logged to the console or the REX-Ray log file (defaults to
-`/var/log/rexray/rexray.log`).
-
-- panic
-- fatal
-- error
-- warn
-- info
-- debug
-
-### Troubleshooting
-The command `rexray env` can be used to print out the runtime interpretation
-of the environment, including configured properties, in order to help diagnose
-configuration issues.
-
-```
-$ rexray env | grep DEFAULT | sort -r
-REXRAY_MODULES_DEFAULT-DOCKER_TYPE=docker
-REXRAY_MODULES_DEFAULT-DOCKER_SPEC=/etc/docker/plugins/rexray.spec
-REXRAY_MODULES_DEFAULT-DOCKER_LIBSTORAGE_SERVICE=vfs
-REXRAY_MODULES_DEFAULT-DOCKER_HOST=unix:///run/docker/plugins/rexray.sock
-REXRAY_MODULES_DEFAULT-DOCKER_DISABLED=false
-REXRAY_MODULES_DEFAULT-DOCKER_DESC=The default docker module.
-REXRAY_MODULES_DEFAULT-ADMIN_TYPE=admin
-REXRAY_MODULES_DEFAULT-ADMIN_HOST=unix:///var/run/rexray/server.sock
-REXRAY_MODULES_DEFAULT-ADMIN_DISABLED=false
-REXRAY_MODULES_DEFAULT-ADMIN_DESC=The default admin module.
-LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_TYPE=
-LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_SIZE=16
-LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_IOPS=
-LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_FSTYPE=ext4
-LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_CREATE_DEFAULT_AVAILABILITYZONE=
+```yaml
+rexray:
+  modules:
+    default-docker:
+      host:     unix:///run/docker/plugins/virtualbox.sock
+      spec:     /etc/docker/plugins/virtualbox.spec
+      libstorage:
+        service: virtualbox
+    scaleio-docker:
+      type:     docker
+      host:     unix:///run/docker/plugins/scaleio.sock
+      spec:     /etc/docker/plugins/scaleio.spec
+      libstorage:
+        service: scaleio
+libstorage:
+  embedded: true
+  server:
+    services:
+      scaleio:
+        driver: scaleio
+      virtualbox:
+        driver: virtualbox
+scaleio:
+  endpoint: https://192.168.50.12/api
+  insecure: true
+  userName: admin
+  password: Scaleio123
+  systemName: cluster1
+  protectionDomainName: pdomain
+  storagePoolName: pool1
+virtualbox:
+  volumePath: /Users/your_user/VirtualBox Volumes
 ```
 
-## Advanced Configuration
-The following sections detail every last aspect of how REX-Ray works and can
-be configured.
+### Defining Remote Service Endpoints
+The following examples are very similar to the previous. However, here we are
+configuring a centralized REX-Ray controller which serves requests from
+REX-Ray clients. You will notice a big difference here is that the server
+removes the module definitions. This information is then transferred to the
+client configuration.  Additionally we introduced the `host` and
+`client.type` setting to define a remotable endpoint and to ensure client based
+introspection does not take place on the server.
+
+The following is the example server configuration.
+```yaml
+rexray:
+  modules:
+    default-docker:
+      disabled: true
+libstorage:
+  embedded: true
+  host: tcp://:7980
+  client:
+    type: controller
+  server:
+    services:
+      scaleio:
+        driver: scaleio
+      virtualbox:
+        driver: virtualbox
+scaleio:
+  endpoint: https://sio_gw_ip/api
+  insecure: true
+  userName: admin
+  password: sio_pw
+  systemName: cluster1
+  protectionDomainName: pdomain
+  storagePoolName: pool1
+virtualbox:
+  volumePath: /Users/your_user/VirtualBox Volumes
+```
+
+The client configuration is still rather simple. You can see that now the
+`rexray.modules` configuration takes place here instead. This allows Docker
+engines to run on the remote instances talking locally to the REX-Ray client
+instance which makes use of the centralized REX-Ray server.
+
+```yaml
+rexray:
+  modules:
+    default-docker:
+      host:     unix:///run/docker/plugins/virtualbox.sock
+      spec:     /etc/docker/plugins/virtualbox.spec
+      libstorage:
+        service: virtualbox
+    scaleio-docker:
+      type:     docker
+      host:     unix:///run/docker/plugins/scaleio.sock
+      spec:     /etc/docker/plugins/scaleio.spec
+      libstorage:
+        service: scaleio
+libstorage:
+  host: tcp://rexray_server_ip:7980
+```
+
+### libStorage Configuration
+REX-Ray embeds both the libStorage client as well as the libStorage server. For
+information on configuring the following, please refer to the
+[libStorage documentation](http://libstorage.readthedocs.io/en/stable):
+
+ - [Volume options](http://libstorage.readthedocs.io/en/stable/user-guide/config/#volume-configuration)
+   such as preemption, disabling operations, etc.
+ - Fine-tuning [logging](http://libstorage.readthedocs.io/en/stable/user-guide/config/#logging-configuration)
+ - [Configuring](http://libstorage.readthedocs.io/en/stable/user-guide/config/#driver-configuration)
+   OS, integration, and storage drivers
 
 ### Data Directories
 The first time REX-Ray is executed it will create several directories if
@@ -508,14 +701,3 @@ rexray volume -l debug
 ```bash
 env REXRAY_LOGLEVEL=debug rexray volume
 ```
-
-### libStorage Configuration
-REX-Ray embeds both the libStorage client as well as the libStorage server. For
-information on configuring the following, please refer to the
-[libStorage documentation](http://libstorage.readthedocs.io/en/stable):
-
- - [Volume options](http://libstorage.readthedocs.io/en/stable/user-guide/config/#volume-configuration)
-   such as preemption, disabling operations, etc.
- - Fine-tuning [logging](http://libstorage.readthedocs.io/en/stable/user-guide/config/#logging-configuration)
- - [Configuring](http://libstorage.readthedocs.io/en/stable/user-guide/config/#driver-configuration)
-   OS, integration, and storage drivers
