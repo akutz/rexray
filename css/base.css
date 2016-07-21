@@ -3,6 +3,22 @@ div.injected {
     display: none !important;
 }
 
+div.admonition.note {
+    background-color: rgba(254, 241, 134, 0.5);
+    padding: 10px 20px 10px 20px;
+    -moz-border-radius: 6px;
+    -webkit-border-radius: 6px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+}
+
+div.admonition.note .admonition-title {
+    color: black;
+    text-transform: uppercase;
+    font-weight: bolder;
+    text-shadow: 2px 2px 3px rgba(0, 0, 0, .15);
+}
+
 li.divider {
     background-color: rgba(255, 255, 255, 0.1) !important;
 }
@@ -30,7 +46,7 @@ div.col-md-9 h1:first-of-type {
     text-shadow: 2px 2px 3px rgba(0, 0, 0, .25);
 }
 
-div.col-md-9 p:first-of-type {
+div.col-md-9 > p:first-of-type {
     text-align: center;
     text-shadow: 2px 2px 3px rgba(0, 0, 0, .15);
 }
@@ -126,6 +142,11 @@ div.source-links {
     font-size: 90%;
 }
 
+.bs-sidebar .nav .nav .nav > li > a {
+    font-size: 80%;
+    padding-left: 40px;
+}
+
 /* Show and affix the side nav when space allows it */
 @media (min-width: 992px) {
     .bs-sidebar .nav > .active > ul {
@@ -155,4 +176,8 @@ div.source-links {
     .bs-sidebar.affix {
         width: 263px;
     }
+}
+
+ul ul, ol ul, ul ol, ol ol {
+    margin-bottom: 10px;
 }

@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        <link rel="canonical" href="https://github.com/emccode/rexray/user-guide/schedulers/">
+        <link rel="shortcut icon" href="../../favicon.png">
+        
+
+	<title>Schedulers - REX-Ray</title>
+
+        <link href="../../css/bootstrap-custom.min.css" rel="stylesheet">
+        <link href="../../css/font-awesome-4.0.3.css" rel="stylesheet">
+        <link rel="stylesheet" href="../../css/highlight.css">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link href="../../css/emccode-font.css" rel="stylesheet">
+        <link href="../../css/hX.css" rel="stylesheet">
+
+        <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+        <!--[if lt IE 9]>
+            <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+            <script src="https://oss.maxcdn.com/libs/respond.js/1.3.0/respond.min.js"></script>
+        <![endif]-->
+
+        
+
+        <!-- scroll fix -->
+        <script>
+            //var shiftWindow = function() { scrollBy(0, -40) };
+            //if (location.hash) shiftWindow();
+            //window.addEventListener("hashchange", shiftWindow);
+        </script>
+
+    </head>
+
+    <body>
+
+        <div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+
+        <!-- Collapsed navigation -->
+        <div class="navbar-header">
+            <!-- Expander button -->
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+
+            <!-- Main title -->
+            <a class="navbar-brand" href="../..">
+                <i class="fa icon-rexray-logo"></i>
+                REX-Ray
+            </a>
+        </div>
+
+        <!-- Expanded navigation -->
+        <div class="navbar-collapse collapse">
+            <!-- Main navigation -->
+            <ul class="nav navbar-nav">
+            
+            
+                <li >
+                    <a href="../..">Home</a>
+                </li>
+            
+            
+            
+                <li class="dropdown active">
+                    <a href="#" class="dropdown-toggle" data-toggle="dropdown">User Guide <b class="caret"></b></a>
+                    <ul class="dropdown-menu">
+                    
+                        <li >
+                            <a href="../installation/">Installation</a>
+                        </li>
+                    
+                        <li >
+                            <a href="../config/">Configuration</a>
+                        </li>
+                    
+                        <li >
+                            <a href="../storage-providers/">Storage Providers</a>
+                        </li>
+                    
+                        <li class="active">
+                            <a href="./">Schedulers</a>
+                        </li>
+                    
+                        <li >
+                            <a href="../applications/">Applications</a>
+                        </li>
+                    
+                    </ul>
+                </li>
+                <!--
+                smart menus
+                <li><a href="#">User Guide <span class="caret"></span></a>
+                    <ul class="dropdown-menu">
+                    
+                    
+                        <li >
+                            <a href="../installation/">Installation</a>
+                        </li>
+                    
+                    
+                    
+                        <li >
+                            <a href="../config/">Configuration</a>
+                        </li>
+                    
+                    
+                    
+                        <li >
+                            <a href="../storage-providers/">Storage Providers</a>
+                        </li>
+                    
+                    
+                    
+                        <li class="active">
+                            <a href="./">Schedulers</a>
+                        </li>
+                    
+                    
+                    
+                        <li >
+                            <a href="../applications/">Applications</a>
+                        </li>
+                    
+                    
+                    </ul>
+                </li>
+                -->
+            
+            
+            
+                <li class="dropdown">
+                    <a href="#" class="dropdown-toggle" data-toggle="dropdown">Developers Guide <b class="caret"></b></a>
+                    <ul class="dropdown-menu">
+                    
+                        <li >
+                            <a href="../../dev-guide/project-guidelines/">Project Guidelines</a>
+                        </li>
+                    
+                        <li >
+                            <a href="../../dev-guide/build-reference/">Build Reference</a>
+                        </li>
+                    
+                        <li >
+                            <a href="../../dev-guide/release-process/">Release Process</a>
+                        </li>
+                    
+                    </ul>
+                </li>
+                <!--
+                smart menus
+                <li><a href="#">Developers Guide <span class="caret"></span></a>
+                    <ul class="dropdown-menu">
+                    
+                    
+                        <li >
+                            <a href="../../dev-guide/project-guidelines/">Project Guidelines</a>
+                        </li>
+                    
+                    
+                    
+                        <li >
+                            <a href="../../dev-guide/build-reference/">Build Reference</a>
+                        </li>
+                    
+                    
+                    
+                        <li >
+                            <a href="../../dev-guide/release-process/">Release Process</a>
+                        </li>
+                    
+                    
+                    </ul>
+                </li>
+                -->
+            
+            
+            
+                <li class="dropdown">
+                    <a href="#" class="dropdown-toggle" data-toggle="dropdown">About <b class="caret"></b></a>
+                    <ul class="dropdown-menu">
+                    
+                        <li >
+                            <a href="../../about/contributing/">Contributing</a>
+                        </li>
+                    
+                        <li >
+                            <a href="../../about/license/">License</a>
+                        </li>
+                    
+                        <li >
+                            <a href="../../about/release-notes/">Release Notes</a>
+                        </li>
+                    
+                    </ul>
+                </li>
+                <!--
+                smart menus
+                <li><a href="#">About <span class="caret"></span></a>
+                    <ul class="dropdown-menu">
+                    
+                    
+                        <li >
+                            <a href="../../about/contributing/">Contributing</a>
+                        </li>
+                    
+                    
+                    
+                        <li >
+                            <a href="../../about/license/">License</a>
+                        </li>
+                    
+                    
+                    
+                        <li >
+                            <a href="../../about/release-notes/">Release Notes</a>
+                        </li>
+                    
+                    
+                    </ul>
+                </li>
+                -->
+            
+            
+            </ul>
+
+            <!-- Search, Navigation and Repo links -->
+            <ul class="nav navbar-nav navbar-right">
+                <li >
+                    <a rel="next" href="../storage-providers/">
+                        <i class="fa fa-arrow-left"></i> Previous
+                    </a>
+                </li>
+                <li >
+                    <a rel="prev" href="../applications/">
+                        Next <i class="fa fa-arrow-right"></i>
+                    </a>
+                </li>
+                
+                <li>
+                    <a href="https://github.com/emccode/rexray.git">
+                        
+                            <i class="fa fa-github"></i>
+                        
+                        GitHub
+                    </a>
+                </li>
+                
+                <li>
+                    <a href="https://emccode.github.io">
+                        <i class="fa icon-emccode-logo"></i>
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+        <div class="container ">
+            <div class="col-md-3"><div id="sidenav" class="bs-sidebar hidden-print affix well" role="complementary">
+    <ul class="nav bs-sidenav">
+    
+        <li class="main active"><a href="#schedulers">Schedulers</a></li>
+        
+            <li><a href="#overview">Overview</a>
+            
+            </li>
+        
+            <li><a href="#docker">Docker</a>
+            
+                <ul class="nav nav-stacked">
+                
+                <li><a href="#external-access">External Access</a><!--
+                -->
+                </li>
+                
+                <li><a href="#volume-management">Volume Management</a><!--
+                
+                <ul class="nav nav-stacked">
+                    
+                    <li><a href="#list-volumes">List Volumes</a></li>
+                    
+                    <li><a href="#inspect-volume">Inspect Volume</a></li>
+                    
+                    <li><a href="#create-volume">Create Volume</a></li>
+                    
+                    <li><a href="#remove-volume">Remove Volume</a></li>
+                    
+                </ul>
+                -->
+                </li>
+                
+                <li><a href="#containers-with-volumes">Containers with Volumes</a><!--
+                -->
+                </li>
+                
+                </ul>
+            
+            </li>
+        
+            <li><a href="#mesos">Mesos</a>
+            
+                <ul class="nav nav-stacked">
+                
+                <li><a href="#docker-containerizer-with-marathon">Docker Containerizer with Marathon</a><!--
+                -->
+                </li>
+                
+                <li><a href="#mesos-containerizer-with-marathon">Mesos Containerizer with Marathon</a><!--
+                -->
+                </li>
+                
+                </ul>
+            
+            </li>
+        
+    
+    </ul>
+</div></div>
+            <div class="col-md-9" role="main">
+
+<h1 id="schedulers">Schedulers</h1>
+<p>Scheduling storage one resource at a time...</p>
+<hr />
+<h2 id="overview">Overview</h2>
+<p>This page reviews the scheduling systems supported by REX-Ray.</p>
+<h2 id="docker">Docker</h2>
+<p>The majority of the documentation for the Docker integration driver has been
+<a href="http://libstorage.readthedocs.io/en/stable/user-guide/schedulers/#docker">relocated</a>
+to the libStorage project.</p>
+<h3 id="external-access">External Access</h3>
+<p>By default, REX-Ray's embedded Docker Volume Plug-in endpoint handles
+requests from the local Docker service via a UNIX socket. Doing so
+restricts the endpoint to the localhost, increasing network security by removing
+a possible attack vector. If an externally accessible Docker Volume Plug-in
+endpoint is required, it's still possible to create one by overriding the
+address for the <code>default-docker</code> module in REX-Ray's configuration file:</p>
+<pre><code class="yaml">rexray:
+  modules:
+    default-docker:
+      host: tcp://:7981
+</code></pre>
+
+<p>The above example illustrates how to override the <code>default-docker</code> module's
+endpoint address. The value <code>tcp://:7981</code> instructs the Docker Volume Plug-in
+to listen on port 7981 for all configured interfaces.</p>
+<p>Using a TCP endpoint has a side-effect however -- the local Docker instance
+will not know about the Volume Plug-in endpoint as there is no longer a UNIX
+socket file in the directory the Docker service continually scans.</p>
+<p>On the local system, and in fact on all systems where the Docker service needs
+to know about this externally accessible Volume Plug-in endpoint, a spec file
+must be created at <code>/etc/docker/plugins/rexray.spec</code>. Inside this file simply
+include a single line with the network address of the endpoint. For example:</p>
+<pre><code class="bash">tcp://192.168.56.20:7981
+</code></pre>
+
+<p>With a spec file located at <code>/etc/docker/plugins/rexray.spec</code> that contains
+the above contents, Docker instances will query the Volume Plug-in endpoint at
+<code>tcp://192.168.56.20:7981</code> when volume requests are received.</p>
+<h3 id="volume-management">Volume Management</h3>
+<p>The <code>volume</code> sub-command for Docker 1.12+ should look similar to the following:</p>
+<pre><code class="sh">$ docker volume
+
+Usage:  docker volume [OPTIONS] [COMMAND]
+
+Manage Docker volumes
+
+Commands:
+  create                   Create a volume
+  inspect                  Return low-level information on a volume
+  ls                       List volumes
+  rm                       Remove a volume
+</code></pre>
+
+<h4 id="list-volumes">List Volumes</h4>
+<p>The list command reviews a list of available volumes that have been discovered
+via Docker Volume Plug-in endpoints such as REX-Ray. Each volume name is
+expected to be unique. Thus volume names must also be unique across all
+endpoints, and in turn, across all storage platforms exposed by REX-Ray.</p>
+<p>With the exception of the <code>local</code> driver, the list of returned volumes is
+generated by the backend storage platform to which the configured driver
+communicates:</p>
+<pre><code class="sh">$ docker volume ls
+DRIVER              VOLUME NAME
+local               local1
+scaleio             Volume-001
+virtualbox          vbox1
+</code></pre>
+
+<h4 id="inspect-volume">Inspect Volume</h4>
+<p>The inspect command can be used to retrieve details about a volume related to
+both Docker and the underlying storage platform. The fields listed under
+<code>Status</code> are all generated by REX-Ray, including <code>Size in GB</code>, <code>Volume Type</code>,
+and <code>Availability Zone</code>.</p>
+<p>The <code>Scope</code> parameter ensures that when the specified volume driver is
+inspected by multiple Docker hosts, the volumes tagged as <code>global</code> are all
+interpreted as the same volume. This reduces unnecessary round-trips in
+situations where an application such as Docker Swarm is connected to hosts
+configured with REX-Ray.</p>
+<pre><code class="sh">$ docker volume inspect vbox1
+[
+    {
+        &quot;Name&quot;: &quot;vbox1&quot;,
+        &quot;Driver&quot;: &quot;virtualbox&quot;,
+        &quot;Mountpoint&quot;: &quot;&quot;,
+        &quot;Status&quot;: {
+            &quot;availabilityZone&quot;: &quot;&quot;,
+            &quot;fields&quot;: null,
+            &quot;iops&quot;: 0,
+            &quot;name&quot;: &quot;vbox1&quot;,
+            &quot;server&quot;: &quot;virtualbox&quot;,
+            &quot;service&quot;: &quot;virtualbox&quot;,
+            &quot;size&quot;: 8,
+            &quot;type&quot;: &quot;&quot;
+        },
+        &quot;Labels&quot;: {},
+        &quot;Scope&quot;: &quot;global&quot;
+    }
+]
+</code></pre>
+
+<h4 id="create-volume">Create Volume</h4>
+<p>Docker's <code>volume create</code> command enables the creation of new volumes on the
+underlying storage platform. Newly created volumes are available immediately
+to be attached and mounted. The <code>volume create</code> command also supports the CLI
+flag <code>-o|--opt</code> in order to support providing custom data to the volume creation
+workflow:</p>
+<pre><code class="sh">$ docker volume create --driver=virtualbox --name=vbox2 --opt=size=2
+vbox2
+</code></pre>
+
+<p>Additional, valid options for the <code>-o|--opt</code> parameter include:</p>
+<table>
+<thead>
+<tr>
+<th>option</th>
+<th>description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>size</td>
+<td>Size in GB</td>
+</tr>
+<tr>
+<td>IOPS</td>
+<td>IOPS</td>
+</tr>
+<tr>
+<td>volumeType</td>
+<td>Type of Volume or Storage Pool</td>
+</tr>
+<tr>
+<td>volumeName</td>
+<td>Create from an existing volume name</td>
+</tr>
+<tr>
+<td>volumeID</td>
+<td>Create from an existing volume ID</td>
+</tr>
+<tr>
+<td>snapshotName</td>
+<td>Create from an existing snapshot name</td>
+</tr>
+<tr>
+<td>snapshotID</td>
+<td>Create from an existing snapshot ID</td>
+</tr>
+</tbody>
+</table>
+<h4 id="remove-volume">Remove Volume</h4>
+<p>A volume may be removed once it is no longer in use by a container, running or
+otherwise. The process of removing a container actually causes the volume to
+be removed if that is the last container to leverage said volume:</p>
+<pre><code class="sh">$ docker volume rm vbox2
+</code></pre>
+
+<h3 id="containers-with-volumes">Containers with Volumes</h3>
+<p>Please review the <a href="../applications/">Applications</a> section for information on
+configuring popular applications with persistent storage via Docker and REX-Ray.</p>
+<h2 id="mesos">Mesos</h2>
+<p>In Mesos the frameworks are responsible for receiving requests from
+consumers and then proceeding to schedule and manage tasks. While some
+frameworks, like Marathon, are open to run any workload for sustained periods
+of time, others are use case specific, such as Cassandra. Frameworks may
+also receive requests from other platforms in addition to schedulers instead of
+consumers such as Cloud Foundry, Kubernetes, and Swarm.</p>
+<p>Once a resource offer is accepted from Mesos, tasks are launched to support the
+associated workloads. These tasks are eventually distributed to Mesos agents in
+order to spin up containers.</p>
+<p>REX-Ray enables on-demand storage allocation for agents receiving tasks via
+two deployment configurations:</p>
+<ol>
+<li>
+<p>Docker Containerizer with Marathon</p>
+</li>
+<li>
+<p>Mesos Containerizer with Marathon</p>
+</li>
+</ol>
+<h3 id="docker-containerizer-with-marathon">Docker Containerizer with Marathon</h3>
+<p>When the framework leverages the Docker containerizer, Docker and REX-Ray
+should both already be configured and working. The following example shows
+how to use Marathon in order to bring an application online with external
+volumes:</p>
+<pre><code class="json">{
+    &quot;id&quot;: &quot;nginx&quot;,
+    &quot;container&quot;: {
+        &quot;docker&quot;: {
+            &quot;image&quot;: &quot;million12/nginx&quot;,
+            &quot;network&quot;: &quot;BRIDGE&quot;,
+            &quot;portMappings&quot;: [{
+                &quot;containerPort&quot;: 80,
+                &quot;hostPort&quot;: 0,
+                &quot;protocol&quot;: &quot;tcp&quot;
+            }],
+            &quot;parameters&quot;: [{
+                &quot;key&quot;: &quot;volume-driver&quot;,
+                &quot;value&quot;: &quot;rexray&quot;
+            }, {
+                &quot;key&quot;: &quot;volume&quot;,
+                &quot;value&quot;: &quot;nginx-data:/data/www&quot;
+            }]
+        }
+    },
+    &quot;cpus&quot;: 0.2,
+    &quot;mem&quot;: 32.0,
+    &quot;instances&quot;: 1
+}
+</code></pre>
+
+<h3 id="mesos-containerizer-with-marathon">Mesos Containerizer with Marathon</h3>
+<p>Mesos 0.23+ includes modules that enable extensibility for different
+portions the architecture. The <a href="https://github.com/emccode/dvdcli">dvdcli</a> and
+<a href="https://github.com/emccode/mesos-module-dvdi">mesos-module-dvdi</a> projects are
+required for to enable external volume support with the native containerizer.</p>
+<p>The next example is similar to the one above, except in this instance the
+native containerizer is preferred and volume requests are handled by the
+<code>env</code> section.</p>
+<pre><code class="json">{
+  &quot;id&quot;: &quot;hello-play&quot;,
+  &quot;cmd&quot;: &quot;while [ true ] ; do touch /var/lib/rexray/volumes/test12345/hello ; sleep 5 ; done&quot;,
+  &quot;mem&quot;: 32,
+  &quot;cpus&quot;: 0.1,
+  &quot;instances&quot;: 1,
+  &quot;env&quot;: {
+    &quot;DVDI_VOLUME_NAME&quot;: &quot;test12345&quot;,
+    &quot;DVDI_VOLUME_DRIVER&quot;: &quot;rexray&quot;,
+    &quot;DVDI_VOLUME_OPTS&quot;: &quot;size=5,iops=150,volumetype=io1,newfstype=xfs,overwritefs=true&quot;
+  }
+}
+</code></pre>
+
+<p>This example also illustrates several important settings for the native method.
+While the VirtualBox driver is being used, any validated storage platform
+should work. Additionally, there are two options recommended for this type of
+configuration:</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>libstorage.integration.volume.operations.mount.preempt</code></td>
+<td>Setting this flag to true ensures any host can preempt control of a volume from other hosts</td>
+</tr>
+<tr>
+<td><code>libstorage.integration.volume.operations.unmount.ignoreUsedCount</code></td>
+<td>Enabling this flag declares that <code>mesos-module-dvdi</code> is the authoritative source for deciding when to unmount volumes</td>
+</tr>
+</tbody>
+</table>
+<p>Please refer to the libStorage documentation for more information on
+<a href="http://libstorage.readthedocs.io/en/stable/user-guide/config/#volume-configuration">Volume Configuration</a>
+options.</p>
+<div class="admonition note">
+<p class="admonition-title">note</p>
+<p>The <code>libstorage.integration.volume.operations.remove.disable</code> property can
+prevent the scheduler from removing volumes. Setting this flag to <code>true</code> is
+recommended when using Mesos with Docker 1.9.1 or earlier.</p>
+</div>
+<pre><code class="yaml">libstorage:
+  service: virtualbox
+  integration:
+    volume:
+      operations:
+        mount:
+          preempt: true
+        unmount:
+          ignoreusedcount: true
+        remove:
+          disable: true
+virtualbox:
+  volumePath: $HOME/VirtualBox/Volumes
+</code></pre></div>
+        </div>
+
+        <script src="../../js/jquery-1.10.2.min.js"></script>
+        <script src="../../js/bootstrap-3.0.3.min.js"></script>
+        <script src="../../js/highlight.pack.js"></script>
+        <script src="../../js/base.js"></script>
+        <!--
+        <script src="../../.themes/yeti/js/base.js"></script>
+        <script src="../../.themes/yeti/js/bootstrap-3.0.3.min.js"></script>
+        <script src="../../.themes/yeti/js/highlight.pack.js"></script>
+        <script src="../../.themes/yeti/js/jquery-1.10.2.min.js"></script>
+        -->
+    </body>
+
+</html>
