@@ -52,8 +52,6 @@ REXRAY_BUILD_TYPE := client
 BUILD_LIBSTORAGE_SERVER := false
 BUILD_TAGS := $(filter-out libstorage_storage_driver,$(BUILD_TAGS))
 BUILD_TAGS := $(filter-out libstorage_storage_driver_%,$(BUILD_TAGS))
-BUILD_TAGS := $(filter-out libstorage_storage_executor,$(BUILD_TAGS))
-BUILD_TAGS := $(filter-out libstorage_storage_executor_%,$(BUILD_TAGS))
 endif
 
 ifneq (,$(findstring rexray_build_type_agent,$(BUILD_TAGS)))
@@ -65,8 +63,6 @@ EMBED_SCRIPTS_FLEXREX := false
 DEPEND_ON_GOBINDATA := false
 BUILD_TAGS := $(filter-out libstorage_storage_driver,$(BUILD_TAGS))
 BUILD_TAGS := $(filter-out libstorage_storage_driver_%,$(BUILD_TAGS))
-BUILD_TAGS := $(filter-out libstorage_storage_executor,$(BUILD_TAGS))
-BUILD_TAGS := $(filter-out libstorage_storage_executor_%,$(BUILD_TAGS))
 endif
 
 ifneq (,$(findstring rexray_build_type_controller,$(BUILD_TAGS)))
@@ -81,8 +77,8 @@ ifeq (true,$(BUILD_LIBSTORAGE_SERVER))
 # if this is a controller build then consider the DRIVERS var as it may
 # contain a list of drivers to include in the controller binary
 ifneq (,$(DRIVERS))
-BUILD_TAGS += libstorage_storage_driver libstorage_storage_executor
-BUILD_TAGS += $(foreach d,$(DRIVERS),libstorage_storage_driver_$(d) libstorage_storage_executor_$(d))
+BUILD_TAGS += libstorage_storage_driver
+BUILD_TAGS += $(foreach d,$(DRIVERS),libstorage_storage_driver_$(d))
 endif
 endif
 
@@ -1150,26 +1146,15 @@ endif
 
 LIBSTORAGE_DIR := vendor/github.com/codedellemc/libstorage
 LIBSTORAGE_API := $(LIBSTORAGE_DIR)/api/api_generated.go
-ifeq (true,$(BUILD_LIBSTORAGE_SERVER))
-LIBSTORAGE_LSX := $(LIBSTORAGE_DIR)/api/server/executors/executors_generated.go
-LIBSTORAGE_LSX_BINDIR := $(LIBSTORAGE_DIR)/api/server/executors/bin
-$(LIBSTORAGE_API) $(LIBSTORAGE_LSX):
-else
 $(LIBSTORAGE_API):
-endif
 	cd $(LIBSTORAGE_DIR) && \
 		BUILD_TAGS="$(BUILD_TAGS)" $(MAKE) $(subst $(LIBSTORAGE_DIR)/,,$@) && \
 		cd -
-ifeq (true,$(BUILD_LIBSTORAGE_SERVER))
-$(LIBSTORAGE_LSX): | $(GO_BINDATA)
-build-libstorage: $(LIBSTORAGE_API) $(LIBSTORAGE_LSX)
-else
 build-libstorage: $(LIBSTORAGE_API)
-endif
 
 clean-libstorage:
 	if [ -f $(LIBSTORAGE_API) ]; then $(MAKE) -C $(LIBSTORAGE_DIR) clean; fi
-	rm -fr $(LIBSTORAGE_API) $(LIBSTORAGE_LSX) $(LIBSTORAGE_LSX_BINDIR)
+	rm -fr $(LIBSTORAGE_API)
 	find $(LIBSTORAGE_DIR) -name "*.d" -type f -delete
 
 GO_CLEAN += clean-libstorage
@@ -1576,9 +1561,7 @@ clobber:
        $(GOPATH)/bin/*/$(PROG_ROOT) \
        $(GOPATH)/bin/*/$(PROG_ROOT)-agent \
        $(GOPATH)/bin/*/$(PROG_ROOT)-client \
-       $(GOPATH)/bin/*/$(PROG_ROOT)-controller \
-       $(GOPATH)/bin/lsx-* \
-       $(GOPATH)/bin/*/lsx-*
+       $(GOPATH)/bin/*/$(PROG_ROOT)-controller
 	rm -fr $(GOPATH)/pkg/$(ROOT_IMPORT_PATH) \
        $(GOPATH)/pkg/*/$(ROOT_IMPORT_PATH)
 ifneq (1,$(CLOBBER_NOCLEAN))

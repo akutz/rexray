@@ -577,6 +577,7 @@ func checkVolumeArgs(cmd *cobra.Command, args []string) {
 
 func (c *CLI) logVolumeLoopError(
 	processed interface{}, name, msg string, err error) {
+	fmt.Fprintf(os.Stderr, "name=%v\tmsg=%v\terr=%v\n", name, msg, err)
 	logEntry := log.WithField("volume", name).WithError(err)
 	httpErr, ok := err.(goof.HTTPError)
 	if ok {

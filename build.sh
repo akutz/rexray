@@ -9,7 +9,7 @@ ekho() {
 }
 usage() {
   ekho "usage: build.sh [-l loglevel] [-b builder] [-x] [-t type] [-d drivers]"
-  ekho "                [-a arch] [-e executors]"
+  ekho "                [-a arch]"
   ekho "                [-u rr_uri] [-r rr_ref]"
   ekho "                [-s] | [-1 ls_uri] [-2 ls_ref]"
   ekho "                [-3] [FILE]"
@@ -20,10 +20,6 @@ usage() {
   ekho
   ekho "       -a arch          Optional. Sets the GOARCH environment variable."
   ekho "                        Defaults to amd64."
-  ekho
-  ekho "       -e exeuctors     Optional. A quoted, space delimited list of the"
-  ekho "                        GOOS_GOARCH executors to embed. The default value"
-  ekho "                        is GOOS_GOARCH."
   ekho
   ekho "       -b builder       Optional. The builder used to build REX-Ray. Possible"
   ekho "                        values include docker, make & skip. The default value,"
@@ -355,7 +351,6 @@ get_semver() {
 create_dockerfile() {
   workdir_rr="/go/src/github.com/codedellemc/rexray/"
   bsrc='GOARCH="'"${GOARCH}"'" NOSTAT="1" DRIVERS="'"${DRIVERS}"'" '
-  bsrc="$bsrc"'EMED_EXECUTORS="'"${EMED_EXECUTORS}"'" '
   bsrc="$bsrc"'REXRAY_BUILD_TYPE='"${BTYPE}"' make'
 
   lsd="${GOPATH}/src/github.com/codedellemc/libstorage"
@@ -464,7 +459,6 @@ build_make() {
     fi
   fi
   if ! GOARCH="$GOARCH" NOSTAT="1" NODOCKER="1" \
-       EMBED_EXECUTORS="$EMBED_EXECUTORS" \
        DRIVERS="$DRIVERS" REXRAY_BUILD_TYPE="$BTYPE" make; then
     ekho "error building with make"
     return 1
@@ -612,10 +606,6 @@ while getopts ":l:a:e:b:t:d:xu:r:s1:2:3" opt; do
   a)
     FLAG_A="1"
     GOARCH="$OPTARG"
-    ;;
-  e)
-    FLAG_E="1"
-    EMED_EXECUTORS="$OPTARG"
     ;;
   b)
     FLAG_B="1"
@@ -799,9 +789,6 @@ else
   NOKEEP="1"
 fi
 
-# indicate which executors to embed
-EMED_EXECUTORS="${EMED_EXECUTORS:-linux_$GOARCH}"
-
 if [ "$1" != "" ]; then
   FNAME="$1"
 fi
@@ -819,7 +806,6 @@ debug "FLAG_1=$FLAG_1"
 debug "FLAG_2=$FLAG_2"
 debug "FLAG_3=$FLAG_3"
 debug "GOARCH=$GOARCH"
-debug "EMED_EXECUTORS=$EMED_EXECUTORS"
 debug "NOCLEAN=$NOCLEAN"
 debug "NOKEEP=$NOKEEP"
 debug "BUILDER=$BUILDER"
