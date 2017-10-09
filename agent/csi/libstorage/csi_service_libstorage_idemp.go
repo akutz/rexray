@@ -4,11 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+
+	"google.golang.org/grpc/metadata"
 
 	"github.com/codedellemc/gocsi/csi"
 	"github.com/codedellemc/gocsi/mount"
 	xctx "golang.org/x/net/context"
 
+	rrcsi "github.com/codedellemc/rexray/agent/csi"
 	apitypes "github.com/codedellemc/rexray/libstorage/api/types"
 	apiutils "github.com/codedellemc/rexray/libstorage/api/utils"
 )
@@ -86,7 +90,25 @@ func (d *driver) GetVolumeInfo(
 		return nil, err
 	}
 
-	return toVolumeInfo(vol), nil
+	// Check to see if mount path information should be returned.
+	var (
+		isMountInfoRequested bool
+		mounts               []*mount.Info
+	)
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if v, ok := md[rrcsi.GRPCMetadataTargetPaths]; ok && len(v) > 0 {
+			isMountInfoRequested, _ = strconv.ParseBool(v[0])
+		}
+		var err error
+		if mounts, err = mount.GetMounts(); err != nil {
+			return nil, err
+		}
+	}
+
+	d.ctx.WithField(rrcsi.GRPCMetadataTargetPaths, isMountInfoRequested).Debug(
+		"libstorage.csi.idemp: GetVolumeInfo")
+
+	return toVolumeInfo(vol, mounts), nil
 }
 
 // IsControllerPublished should return publication info about
@@ -232,7 +254,7 @@ func (d *driver) IsNodePublished(
 		}
 	} else {
 		for _, mi := range minfo {
-			if mi.Device == "devtmpfs" && mi.Path == targetPath {
+			if mi.Device == devtmpfs && mi.Path == targetPath {
 				return true, nil
 			}
 		}

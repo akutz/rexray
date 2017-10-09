@@ -3,8 +3,10 @@ package libstorage
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/codedellemc/gocsi/csi"
+	"github.com/codedellemc/gocsi/mount"
 
 	apitypes "github.com/codedellemc/rexray/libstorage/api/types"
 )
@@ -68,7 +70,7 @@ func toInstanceID(nodeID *csi.NodeID) (*apitypes.InstanceID, error) {
 	}, nil
 }
 
-func toVolumeInfo(v *apitypes.Volume) *csi.VolumeInfo {
+func toVolumeInfo(v *apitypes.Volume, mounts []*mount.Info) *csi.VolumeInfo {
 
 	mdv := map[string]string{}
 	if v.AttachmentState > 0 {
@@ -98,6 +100,26 @@ func toVolumeInfo(v *apitypes.Volume) *csi.VolumeInfo {
 	for k, v := range v.Fields {
 		if _, ok := mdv[k]; !ok {
 			mdv[k] = v
+		}
+	}
+
+	// Get mount path information.
+	if len(mounts) > 0 &&
+		v.AttachmentState == apitypes.VolumeAttached &&
+		len(v.Attachments) > 0 {
+
+		devPath := v.Attachments[0].DeviceName
+
+		var targetPaths []string
+		for _, mi := range mounts {
+			if mi.Device == devPath ||
+				(mi.Device == devtmpfs && mi.Source == devPath) {
+				targetPaths = append(targetPaths, mi.Path)
+			}
+		}
+
+		if len(targetPaths) > 0 {
+			mdv["targetpaths"] = strings.Join(targetPaths, ",")
 		}
 	}
 

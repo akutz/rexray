@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 
 	xctx "golang.org/x/net/context"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/codedellemc/gocsi/mount"
 	"github.com/codedellemc/goioc"
 
+	rrcsi "github.com/codedellemc/rexray/agent/csi"
 	apictx "github.com/codedellemc/rexray/libstorage/api/context"
 	apitypes "github.com/codedellemc/rexray/libstorage/api/types"
 	apiutils "github.com/codedellemc/rexray/libstorage/api/utils"
@@ -32,6 +34,8 @@ const (
 	// WFDTimeout is the number of seconds to set the timeout to when
 	// calling WaitForDevice
 	WFDTimeout = 10
+
+	devtmpfs = "devtmpfs"
 )
 
 var (
@@ -62,6 +66,7 @@ type driver struct {
 	nodeID     *csi.NodeID
 	pubInfo    map[string]*pubInfoCache
 	pubInfoRWL sync.RWMutex
+	mntPath    string
 }
 
 func (d *driver) Serve(ctx context.Context, lis net.Listener) error {
@@ -75,6 +80,7 @@ func (d *driver) Serve(ctx context.Context, lis net.Listener) error {
 	if config, ok := d.ctx.Value(ctxConfigKey).(gofig.Config); ok {
 		d.ctx.Info("init csi libstorage bridge w ctx.config")
 		d.config = config
+		d.mntPath = d.config.GetString(apitypes.ConfigIgVolOpsMountPath)
 	}
 
 	// Cache the name of the libStorage service for which this bridge
@@ -185,7 +191,7 @@ func (d *driver) CreateVolume(
 	}
 
 	// Transform the created volume into a csi.VolumeInfo
-	volInfo := toVolumeInfo(vol)
+	volInfo := toVolumeInfo(vol, nil)
 
 	return &csi.CreateVolumeResponse{
 		Reply: &csi.CreateVolumeResponse_Result_{
@@ -330,7 +336,23 @@ func (d *driver) ListVolumes(
 	req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
 
+	// Check to see if mount path information should be returned.
+	var isMountInfoRequested bool
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if v, ok := md[rrcsi.GRPCMetadataTargetPaths]; ok && len(v) > 0 {
+			isMountInfoRequested, _ = strconv.ParseBool(v[0])
+		}
+	}
+
+	d.ctx.WithField(rrcsi.GRPCMetadataTargetPaths, isMountInfoRequested).Debug(
+		"libstorage.csi: ListVolumes")
+
+	// If isMountInfoRequested is true then set the VolumesOpts to
+	// request attachment information for this instance.
 	opts := &apitypes.VolumesOpts{Opts: apiutils.NewStore()}
+	if isMountInfoRequested {
+		opts.Attachments = apitypes.VolAttReqWithDevMapForInstance
+	}
 
 	// Use the storage driver to list the volumes.
 	vols, err := d.client.Storage().Volumes(d.ctx, opts)
@@ -338,11 +360,19 @@ func (d *driver) ListVolumes(
 		return nil, err
 	}
 
+	var mounts []*mount.Info
+	if isMountInfoRequested {
+		var err error
+		if mounts, err = mount.GetMounts(); err != nil {
+			return nil, err
+		}
+	}
+
 	// Convert the libStorage volumes to CSI volume info objects.
 	entries := make([]*csi.ListVolumesResponse_Result_Entry, len(vols))
 	for i, v := range vols {
 		entries[i] = &csi.ListVolumesResponse_Result_Entry{
-			VolumeInfo: toVolumeInfo(v),
+			VolumeInfo: toVolumeInfo(v, mounts),
 		}
 	}
 
@@ -577,7 +607,7 @@ func (d *driver) NodeUnpublishVolume(
 				mt = true
 			}
 		}
-		if m.Device == "devtmpfs" && m.Path == target {
+		if m.Device == devtmpfs && m.Path == target {
 			bt = true
 		}
 	}
