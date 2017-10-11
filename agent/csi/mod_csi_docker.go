@@ -2,6 +2,7 @@ package csi
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/codedellemc/gocsi"
 	"github.com/codedellemc/gocsi/csi"
 	dvol "github.com/docker/go-plugins-helpers/volume"
-	"google.golang.org/grpc/metadata"
 
 	apitypes "github.com/codedellemc/rexray/libstorage/api/types"
 )
@@ -39,7 +39,7 @@ func newDockerBridge(
 		config:  config,
 		cs:      cs,
 		fsType:  config.GetString(apitypes.ConfigIgVolOpsCreateDefaultFsType),
-		mntPath: config.GetString(apitypes.ConfigIgVolOpsMountPath),
+		mntPath: config.GetString("rexray.csi.mount.path"),
 		byName:  map[string]csi.VolumeInfo{},
 	}
 }
@@ -78,19 +78,30 @@ func getName(vi csi.VolumeInfo) string {
 func (d *dockerBridge) getVolumeInfo(name string) (csi.VolumeInfo, bool) {
 	d.byNameRWL.RLock()
 	defer d.byNameRWL.RUnlock()
-	vol, ok := d.byName[name]
-	return vol, ok
+	volInfo, ok := d.byName[name]
+	d.ctx.WithFields(map[string]interface{}{
+		"volumeName": name,
+		"volumeInfo": volInfo,
+	}).Debug("getVolumeInfo")
+	return volInfo, ok
 }
 
 func (d *dockerBridge) setVolumeInfo(name string, volInfo csi.VolumeInfo) {
 	d.byNameRWL.Lock()
 	defer d.byNameRWL.Unlock()
+	d.ctx.WithFields(map[string]interface{}{
+		"volumeName": name,
+		"volumeInfo": volInfo,
+	}).Debug("setVolumeInfo")
 	d.byName[name] = volInfo
 }
 
 func (d *dockerBridge) delVolumeInfo(name string) {
 	d.byNameRWL.Lock()
 	defer d.byNameRWL.Unlock()
+	d.ctx.WithFields(map[string]interface{}{
+		"volumeName": name,
+	}).Debug("deleteVolumeInfo")
 	delete(d.byName, name)
 }
 
@@ -105,14 +116,8 @@ var (
 )
 
 const (
-	idKeyID                = "id"
-	mdKeyName              = "name"
-	metadataKeyTargetPaths = "targetpaths"
-
-	// GRPCMetadataTargetPaths is the key in gRPC metatdata that is set
-	// to "true" if a ListVolumes RPC should return VolumeInfo objects
-	// with associated mount path information.
-	GRPCMetadataTargetPaths = "rexray.docker2csi.targetpaths"
+	idKeyID   = "id"
+	mdKeyName = "name"
 
 	errCodeCreateVolAlreadyExits = int32(
 		csi.Error_CreateVolumeError_VOLUME_ALREADY_EXISTS)
@@ -263,12 +268,7 @@ func (d *dockerBridge) List() (*dvol.ListResponse, error) {
 	// Create a new CSI Controller client.
 	cc := csi.NewControllerClient(c)
 
-	// Create a context with gRPC metadata that instructs the CSI endpoint
-	// to return volume mount point information.
-	gctx := metadata.NewOutgoingContext(
-		d.ctx, metadata.Pairs(GRPCMetadataTargetPaths, "true"))
-
-	vols, _, err := gocsi.ListVolumes(gctx, cc, csiVersion, 0, "")
+	vols, _, err := gocsi.ListVolumes(d.ctx, cc, csiVersion, 0, "")
 	if err != nil {
 		d.ctx.Errorf("docker-csi-bridge: List: list volumes failed: %v", err)
 		return nil, err
@@ -304,16 +304,16 @@ func (d *dockerBridge) List() (*dvol.ListResponse, error) {
 
 func (d *dockerBridge) Get(req *dvol.GetRequest) (*dvol.GetResponse, error) {
 
-	vol, ok := d.getVolumeInfo(req.Name)
-	if !ok {
+	if _, ok := d.getVolumeInfo(req.Name); !ok {
 		return nil, fmt.Errorf(
 			"docker-csi-bridge: Get: unknown volume: %s", req.Name)
 	}
 
-	res := &dvol.GetResponse{}
-	res.Volume = &dvol.Volume{Name: req.Name}
-	if vol.Metadata != nil && len(vol.Metadata.Values) > 0 {
-		res.Volume.Mountpoint = vol.Metadata.Values[metadataKeyTargetPaths]
+	res := &dvol.GetResponse{
+		Volume: &dvol.Volume{Name: req.Name},
+	}
+	if targetPath, ok := d.getTargetPath(req.Name); ok {
+		res.Volume.Mountpoint = targetPath
 	}
 
 	return res, nil
@@ -353,10 +353,7 @@ func (d *dockerBridge) Remove(req *dvol.RemoveRequest) (failed error) {
 	defer c.Close()
 
 	// Get the target path(s) to unpublish
-	var targetPath string
-	if vol.Metadata != nil {
-		targetPath = vol.Metadata.Values[metadataKeyTargetPaths]
-	}
+	targetPath, _ := d.getTargetPath(req.Name)
 
 	// Create a new CSI Node client.
 	nc := csi.NewNodeClient(c)
@@ -411,18 +408,13 @@ func (d *dockerBridge) Remove(req *dvol.RemoveRequest) (failed error) {
 
 func (d *dockerBridge) Path(req *dvol.PathRequest) (*dvol.PathResponse, error) {
 
-	vol, ok := d.getVolumeInfo(req.Name)
-	if !ok {
+	if _, ok := d.getVolumeInfo(req.Name); !ok {
 		return nil, fmt.Errorf(
 			"docker-csi-bridge: Path: unknown volume: %s", req.Name)
 	}
 
-	var targetPath string
-	if vol.Metadata != nil {
-		targetPath = vol.Metadata.Values[metadataKeyTargetPaths]
-	}
-
-	if targetPath == "" {
+	targetPath, ok := d.getTargetPath(req.Name)
+	if !ok {
 		return nil, fmt.Errorf(
 			"docker-csi-bridge: Path: volume not mounted: %s", req.Name)
 	}
@@ -442,6 +434,16 @@ func (d *dockerBridge) Path(req *dvol.PathRequest) (*dvol.PathResponse, error) {
 func (d *dockerBridge) Mount(
 	req *dvol.MountRequest) (*dvol.MountResponse, error) {
 
+	d.ctx.WithFields(map[string]interface{}{
+		"volumeName": req.Name,
+	}).Debug("docker-csi-bridge: Mount: enter")
+
+	defer func() {
+		d.ctx.WithFields(map[string]interface{}{
+			"volumeName": req.Name,
+		}).Debug("docker-csi-bridge: Mount: exit")
+	}()
+
 	// Create a new gRPC, CSI client.
 	c, err := d.cs.dial(d.ctx)
 	if err != nil {
@@ -458,6 +460,10 @@ func (d *dockerBridge) Mount(
 
 	// If the volume is not cached then create it.
 	if !ok {
+		d.ctx.WithFields(map[string]interface{}{
+			"volumeName": req.Name,
+		}).Debug("docker-csi-bridge: Mount: creating volume")
+
 		newVol, err := gocsi.CreateVolume(
 			d.ctx, cc, csiVersion,
 			req.Name,
@@ -468,30 +474,28 @@ func (d *dockerBridge) Mount(
 		// If there's an error and it's not VOLUME_ALREADY_EXISTS then
 		// fail this mount attempt.
 		if errIsVolAlreadyExists(err) != nil {
+			d.ctx.WithFields(map[string]interface{}{
+				"volumeName": req.Name,
+			}).Errorf("docker-csi-bridge: Mount: create volume failed: %v", err)
 			return nil, err
 		}
 
 		vol = *newVol
+		d.ctx.WithFields(map[string]interface{}{
+			"volume": vol,
+		}).Debug("docker-csi-bridge: Mount: created volume")
 	}
 
-	// Check to see if the volume is already mounted.
-	var targetPath string
-	if vol.Metadata != nil {
-		targetPath = vol.Metadata.Values[metadataKeyTargetPaths]
-	}
+	// Define the targetPath.
+	targetPath, targetPathExists := d.getTargetPath(req.Name)
 
-	// If the volume is already mounted then return that information
-	if gotil.FileExists(targetPath) {
-		return &dvol.MountResponse{Mountpoint: targetPath}, nil
+	// Create the target directory.
+	if !targetPathExists {
+		os.MkdirAll(targetPath, 0755)
+		d.ctx.WithFields(map[string]interface{}{
+			"targetPath": targetPath,
+		}).Debug("docker-csi-bridge: Mount: created target path")
 	}
-
-	// At this point it's known the volume is not mounted, so proceed
-	// to do so:
-	//
-	// * GetNodeID
-	// * ControllerPublishVolume
-	// * NodePublishVolume
-	// * Update cache with volume's new state
 
 	// Create a new CSI Node client.
 	nc := csi.NewNodeClient(c)
@@ -500,6 +504,8 @@ func (d *dockerBridge) Mount(
 	// Node's ID is required.
 	nodeID, err := gocsi.GetNodeID(d.ctx, nc, csiVersion)
 	if err != nil {
+		d.ctx.WithField("volume", vol).Errorf(
+			"docker-csi-bridge: Mount: GetNodeID failed: %v", err)
 		return nil, err
 	}
 
@@ -513,13 +519,10 @@ func (d *dockerBridge) Mount(
 		vol.Id, vol.Metadata, nodeID,
 		volCap, false)
 	if err != nil {
+		d.ctx.WithField("volume", vol).Errorf(
+			"docker-csi-bridge: Mount: ControllerPublishVolume failed: %v", err)
 		return nil, err
 	}
-
-	// The target path of the volume is determined based on the
-	// volume's name and the Docker-CSI bridge root path for
-	// mounting volumes.
-	targetPath = path.Join(d.mntPath, req.Name)
 
 	// Publish the volume via the Node.
 	if err := gocsi.NodePublishVolume(
@@ -528,18 +531,10 @@ func (d *dockerBridge) Mount(
 		pubInfo, targetPath,
 		volCap, false); err != nil {
 
+		d.ctx.WithField("volume", vol).Errorf(
+			"docker-csi-bridge: Mount: NodePublishVolume failed: %v", err)
 		return nil, err
 	}
-
-	// Update the cache to reflect the volume's new state.
-	if vol.Metadata == nil {
-		vol.Metadata = &csi.VolumeMetadata{}
-	}
-	if vol.Metadata.Values == nil {
-		vol.Metadata.Values = map[string]string{}
-	}
-	vol.Metadata.Values[metadataKeyTargetPaths] = targetPath
-	d.setVolumeInfo(req.Name, vol)
 
 	return &dvol.MountResponse{Mountpoint: targetPath}, nil
 }
@@ -576,18 +571,6 @@ func (d *dockerBridge) Unmount(req *dvol.UnmountRequest) (failed error) {
 			"docker-csi-bridge: Unmount: unknown volume: %s", req.Name)
 	}
 
-	// If the function completes successfully, check the volume's
-	// metadata. If it contains the key constant metadataKeyTargetPaths,
-	// then delete it and update the cache.
-	defer func() {
-		if failed == nil && vol.Metadata != nil {
-			if _, ok := vol.Metadata.Values[metadataKeyTargetPaths]; ok {
-				delete(vol.Metadata.Values, metadataKeyTargetPaths)
-				d.setVolumeInfo(req.Name, vol)
-			}
-		}
-	}()
-
 	// Create a new gRPC, CSI client.
 	c, err := d.cs.dial(d.ctx)
 	if err != nil {
@@ -597,16 +580,13 @@ func (d *dockerBridge) Unmount(req *dvol.UnmountRequest) (failed error) {
 	defer c.Close()
 
 	// Get the target path(s) to unpublish
-	var targetPath string
-	if vol.Metadata != nil {
-		targetPath = vol.Metadata.Values[metadataKeyTargetPaths]
-	}
+	targetPath, _ := d.getTargetPath(req.Name)
 
-	// If there is no target path(s) to unpublish then return early,
-	// with no error.
-	if targetPath == "" {
-		return nil
-	}
+	d.ctx.WithFields(map[string]interface{}{
+		"volumeID":       vol.Id,
+		"volumeMetadata": vol.Metadata,
+		"targetPath":     targetPath,
+	}).Debugf("docker-csi-bridge: Unmount: got target path to unpublish")
 
 	// Create a new CSI Node client.
 	nc := csi.NewNodeClient(c)
@@ -651,4 +631,9 @@ func (d *dockerBridge) Unmount(req *dvol.UnmountRequest) (failed error) {
 
 func (d *dockerBridge) Capabilities() *dvol.CapabilitiesResponse {
 	return &dvol.CapabilitiesResponse{}
+}
+
+func (d *dockerBridge) getTargetPath(volName string) (string, bool) {
+	targetPath := path.Join(d.mntPath, volName)
+	return targetPath, gotil.FileExists(targetPath)
 }

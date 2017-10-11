@@ -1,12 +1,12 @@
 package libstorage
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
-	"strings"
+	"io"
 
 	"github.com/codedellemc/gocsi/csi"
-	"github.com/codedellemc/gocsi/mount"
 
 	apitypes "github.com/codedellemc/rexray/libstorage/api/types"
 )
@@ -70,7 +70,7 @@ func toInstanceID(nodeID *csi.NodeID) (*apitypes.InstanceID, error) {
 	}, nil
 }
 
-func toVolumeInfo(v *apitypes.Volume, mounts []*mount.Info) *csi.VolumeInfo {
+func toVolumeInfo(v *apitypes.Volume) *csi.VolumeInfo {
 
 	mdv := map[string]string{}
 	if v.AttachmentState > 0 {
@@ -103,26 +103,6 @@ func toVolumeInfo(v *apitypes.Volume, mounts []*mount.Info) *csi.VolumeInfo {
 		}
 	}
 
-	// Get mount path information.
-	if len(mounts) > 0 &&
-		v.AttachmentState == apitypes.VolumeAttached &&
-		len(v.Attachments) > 0 {
-
-		devPath := v.Attachments[0].DeviceName
-
-		var targetPaths []string
-		for _, mi := range mounts {
-			if mi.Device == devPath ||
-				(mi.Device == devtmpfs && mi.Source == devPath) {
-				targetPaths = append(targetPaths, mi.Path)
-			}
-		}
-
-		if len(targetPaths) > 0 {
-			mdv["targetpaths"] = strings.Join(targetPaths, ",")
-		}
-	}
-
 	return &csi.VolumeInfo{
 		Id:            &csi.VolumeID{Values: map[string]string{"id": v.ID}},
 		Metadata:      &csi.VolumeMetadata{Values: mdv},
@@ -149,4 +129,26 @@ func isVolCapSupported(
 	// capabilities do not include raw support AND the storage
 	// type is something other than Block.
 	return !(reqCapsIncludeRaw && storType != apitypes.Block)
+}
+
+type logger struct {
+	f func(msg string, args ...interface{})
+	w io.Writer
+}
+
+func newLogger(f func(msg string, args ...interface{})) *logger {
+	l := &logger{f: f}
+	r, w := io.Pipe()
+	l.w = w
+	go func() {
+		scan := bufio.NewScanner(r)
+		for scan.Scan() {
+			f(scan.Text())
+		}
+	}()
+	return l
+}
+
+func (l *logger) Write(data []byte) (int, error) {
+	return l.w.Write(data)
 }

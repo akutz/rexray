@@ -4,15 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
-
-	"google.golang.org/grpc/metadata"
 
 	"github.com/codedellemc/gocsi/csi"
 	"github.com/codedellemc/gocsi/mount"
 	xctx "golang.org/x/net/context"
 
-	rrcsi "github.com/codedellemc/rexray/agent/csi"
 	apitypes "github.com/codedellemc/rexray/libstorage/api/types"
 	apiutils "github.com/codedellemc/rexray/libstorage/api/utils"
 )
@@ -90,25 +86,7 @@ func (d *driver) GetVolumeInfo(
 		return nil, err
 	}
 
-	// Check to see if mount path information should be returned.
-	var (
-		isMountInfoRequested bool
-		mounts               []*mount.Info
-	)
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if v, ok := md[rrcsi.GRPCMetadataTargetPaths]; ok && len(v) > 0 {
-			isMountInfoRequested, _ = strconv.ParseBool(v[0])
-		}
-		var err error
-		if mounts, err = mount.GetMounts(); err != nil {
-			return nil, err
-		}
-	}
-
-	d.ctx.WithField(rrcsi.GRPCMetadataTargetPaths, isMountInfoRequested).Debug(
-		"libstorage.csi.idemp: GetVolumeInfo")
-
-	return toVolumeInfo(vol, mounts), nil
+	return toVolumeInfo(vol), nil
 }
 
 // IsControllerPublished should return publication info about
@@ -149,17 +127,22 @@ func (d *driver) IsControllerPublished(
 		},
 	}
 
-	if d.pubInfo[idVal] == nil {
-		// We don't have cached PublishVolumeInfo details, so we don't
-		// know what the state is, and cannot return an idempotent response
-		// This is where "Andrew was right" and it would be useful to know
-		// the full CSI method name. If we are doing a publish, we would
-		// return false, if it we are doing an unpublish, we would return
-		// we would return true to defer to the bridge
-		pvi.Values["token"] = ""
+	// Check to see if there is a cached PublishVolumeInfo. If there is
+	// then update the current PublishVolumeInfo with the cached
+	// attachment token.
+	//
+	// If there are no cached details, the publication state is unknown,
+	// and an idempotent response cannot be returned. This is where it
+	// would be useful to know the full CSI method name. If a publish
+	// operation is occurring then false could be returned here, whereas
+	// if an unpublish operation were occuring a true value could be
+	// returned to the bridge.
+	if cached, ok := d.pubInfo[idVal]; ok {
+		pvi.Values["token"] = cached.token
 	} else {
-		pvi.Values["token"] = d.pubInfo[idVal].attToken
+		pvi.Values["token"] = ""
 	}
+
 	return pvi, nil
 }
 
@@ -173,12 +156,34 @@ func (d *driver) IsNodePublished(
 
 	var devPath string
 
+	d.ctx.WithFields(map[string]interface{}{
+		"volumeID":   id,
+		"pubInfo":    pubInfo,
+		"targetPath": targetPath,
+	}).Debug("csi-libstorage-bridge: IsNodePublished: enter")
+
 	st, err := os.Stat(targetPath)
-	if os.IsNotExist(err) {
-		return false, errMissingTargetPath
+	if err != nil {
+		logfields := map[string]interface{}{
+			"volumeID":   id,
+			"pubInfo":    pubInfo,
+			"targetPath": targetPath,
+		}
+		if os.IsNotExist(err) {
+			err = errMissingTargetPath
+		}
+		d.ctx.WithFields(logfields).Errorf(
+			"csi-libstorage-bridge: IsNodePublished: %v", err)
+		return false, err
 	}
 
 	volTypeIsMount := st.IsDir()
+	d.ctx.WithFields(map[string]interface{}{
+		"volumeID":       id,
+		"pubInfo":        pubInfo,
+		"targetPath":     targetPath,
+		"volTypeIsMount": volTypeIsMount,
+	}).Debug("csi-libstorage-bridge: IsNodePublished: target path type")
 
 	if pubInfo != nil {
 		token, ok := pubInfo.Values["token"]
@@ -186,21 +191,34 @@ func (d *driver) IsNodePublished(
 			return false, errMissingTokenKey
 		}
 
-		// Get device from local devices
-		opts := &apitypes.LocalDevicesOpts{
-			Opts:     apiutils.NewStore(),
-			ScanType: apitypes.DeviceScanQuick,
-		}
-		devs, lderr := d.client.Executor().LocalDevices(d.ctx, opts)
-		if lderr != nil {
-			return false, errUnableToGetLocDevs
-		}
+		// If this is block-based storage then the attachment token
+		// will be used. Otherwise there is no attachment token so use
+		// the device name as it is an NFS URI or some such thing.
+		if d.storType != apitypes.Block {
+			devPath = token
+		} else {
+			// Get device from local devices
+			opts := &apitypes.LocalDevicesOpts{
+				Opts:     apiutils.NewStore(),
+				ScanType: apitypes.DeviceScanQuick,
+			}
+			devs, lderr := d.client.Executor().LocalDevices(d.ctx, opts)
+			if lderr != nil {
+				return false, errUnableToGetLocDevs
+			}
 
-		devPath, ok = devs.DeviceMap[token]
-		if !ok {
-			// device not in device map yet. That may not be an error, as
-			// it may not have shown up yet. Defer to lower-level publish
-			return false, nil
+			devPath, ok = devs.DeviceMap[token]
+			if !ok {
+				// device not in device map yet. That may not be an error, as
+				// it may not have shown up yet. Defer to lower-level publish
+				d.ctx.WithFields(map[string]interface{}{
+					"volumeID":   id,
+					"pubInfo":    pubInfo,
+					"targetPath": targetPath,
+				}).Debug(
+					"csi-libstorage-bridge: IsNodePublished: dev not ready")
+				return false, nil
+			}
 		}
 	} else {
 		// pubInfo is nil, all we have is the ID, so we will have to
@@ -226,17 +244,34 @@ func (d *driver) IsNodePublished(
 		// indicate an error; just return false to indicate
 		// the volume is not attached to this node.
 		if vol.AttachmentState != apitypes.VolumeAttached {
+			d.ctx.WithFields(map[string]interface{}{
+				"volumeID":   id,
+				"pubInfo":    pubInfo,
+				"targetPath": targetPath,
+			}).Debug("csi-libstorage-bridge: IsNodePublished: not att")
 			return false, nil
 		}
 
 		// If the volume has no attachments then it's not possible to
 		// determine the node publication status.
 		if len(vol.Attachments) == 0 {
+			d.ctx.WithFields(map[string]interface{}{
+				"volumeID":   id,
+				"pubInfo":    pubInfo,
+				"targetPath": targetPath,
+			}).Debug("csi-libstorage-bridge: IsNodePublished: zero atts")
 			return false, nil
 		}
 
 		devPath = vol.Attachments[0].DeviceName
 	}
+
+	d.ctx.WithFields(map[string]interface{}{
+		"volumeID":   id,
+		"pubInfo":    pubInfo,
+		"targetPath": targetPath,
+		"devPath":    devPath,
+	}).Debug("csi-libstorage-bridge: IsNodePublished: got dev path")
 
 	// Get the local mount table.
 	minfo, err := mount.GetMounts()
@@ -262,5 +297,11 @@ func (d *driver) IsNodePublished(
 
 	// If no mount was discovered then indicate the volume is not
 	// published on this node.
+	d.ctx.WithFields(map[string]interface{}{
+		"volumeID":   id,
+		"pubInfo":    pubInfo,
+		"targetPath": targetPath,
+	}).Debug(
+		"csi-libstorage-bridge: IsNodePublished: not mounted")
 	return false, nil
 }

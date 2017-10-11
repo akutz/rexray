@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 
 	xctx "golang.org/x/net/context"
 
@@ -24,7 +23,6 @@ import (
 	"github.com/codedellemc/gocsi/mount"
 	"github.com/codedellemc/goioc"
 
-	rrcsi "github.com/codedellemc/rexray/agent/csi"
 	apictx "github.com/codedellemc/rexray/libstorage/api/context"
 	apitypes "github.com/codedellemc/rexray/libstorage/api/types"
 	apiutils "github.com/codedellemc/rexray/libstorage/api/utils"
@@ -48,7 +46,7 @@ var (
 )
 
 type pubInfoCache struct {
-	attToken string
+	token string
 }
 
 func init() {
@@ -111,9 +109,18 @@ func (d *driver) Serve(ctx context.Context, lis net.Listener) error {
 	szTimeout := d.config.GetString("csi.libstorage.timeout")
 	timeout, _ := time.ParseDuration(szTimeout)
 
+	lout := newLogger(d.ctx.Infof)
+	lerr := newLogger(d.ctx.Errorf)
+
+	interceptors := grpc.UnaryInterceptor(gocsi.ChainUnaryServer(
+		gocsi.ServerRequestIDInjector,
+		gocsi.NewServerRequestLogger(lout, lerr),
+		gocsi.NewServerResponseLogger(lout, lerr),
+		gocsi.NewIdempotentInterceptor(d, timeout),
+	))
+
 	// Create a gRPC server with an idempotent interceptor.
-	d.server = grpc.NewServer(
-		grpc.UnaryInterceptor(gocsi.NewIdempotentInterceptor(d, timeout)))
+	d.server = grpc.NewServer(interceptors)
 
 	csi.RegisterControllerServer(d.server, d)
 	csi.RegisterIdentityServer(d.server, d)
@@ -191,7 +198,7 @@ func (d *driver) CreateVolume(
 	}
 
 	// Transform the created volume into a csi.VolumeInfo
-	volInfo := toVolumeInfo(vol, nil)
+	volInfo := toVolumeInfo(vol)
 
 	return &csi.CreateVolumeResponse{
 		Reply: &csi.CreateVolumeResponse_Result_{
@@ -233,7 +240,7 @@ func (d *driver) ControllerPublishVolume(
 	req *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
 
-	volumeID, ok := req.VolumeId.Values["id"]
+	idVal, ok := req.VolumeId.Values["id"]
 	if !ok {
 		return gocsi.ErrControllerPublishVolume(
 			csi.Error_ControllerPublishVolumeError_INVALID_VOLUME_ID,
@@ -256,14 +263,40 @@ func (d *driver) ControllerPublishVolume(
 	}
 
 	opts := &apitypes.VolumeAttachOpts{Opts: apiutils.NewStore()}
-	vol, token, err := d.client.Storage().VolumeAttach(d.ctx, volumeID, opts)
+	vol, token, err := d.client.Storage().VolumeAttach(d.ctx, idVal, opts)
 	if err != nil {
 		return nil, err
 	}
 
 	d.pubInfoRWL.Lock()
 	defer d.pubInfoRWL.Unlock()
-	d.pubInfo[volumeID] = &pubInfoCache{attToken: token}
+
+	// If this is block-based storage then the attachment token
+	// will be used. Otherwise there is no attachment token so use
+	// the device name as it is an NFS URI or some such thing.
+	if d.storType == apitypes.Block {
+		if token == "" {
+			return gocsi.ErrControllerPublishVolume(
+				csi.Error_ControllerPublishVolumeError_UNSUPPORTED_VOLUME_TYPE,
+				"storage is block-based & token is empty"), nil
+		}
+	} else {
+		if len(vol.Attachments) == 0 {
+			return gocsi.ErrControllerPublishVolume(
+				csi.Error_ControllerPublishVolumeError_UNSUPPORTED_VOLUME_TYPE,
+				fmt.Sprintf("storage is %v-based & no attachments",
+					d.storType)), nil
+		}
+		if token = vol.Attachments[0].DeviceName; token == "" {
+			return gocsi.ErrControllerPublishVolume(
+				csi.Error_ControllerPublishVolumeError_UNSUPPORTED_VOLUME_TYPE,
+				fmt.Sprintf("storage is %v-based & device name is empty",
+					d.storType)), nil
+		}
+	}
+
+	// Cache the "token"
+	d.pubInfo[idVal] = &pubInfoCache{token: token}
 
 	return &csi.ControllerPublishVolumeResponse{
 		Reply: &csi.ControllerPublishVolumeResponse_Result_{
@@ -336,23 +369,9 @@ func (d *driver) ListVolumes(
 	req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
 
-	// Check to see if mount path information should be returned.
-	var isMountInfoRequested bool
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if v, ok := md[rrcsi.GRPCMetadataTargetPaths]; ok && len(v) > 0 {
-			isMountInfoRequested, _ = strconv.ParseBool(v[0])
-		}
-	}
-
-	d.ctx.WithField(rrcsi.GRPCMetadataTargetPaths, isMountInfoRequested).Debug(
-		"libstorage.csi: ListVolumes")
-
 	// If isMountInfoRequested is true then set the VolumesOpts to
 	// request attachment information for this instance.
 	opts := &apitypes.VolumesOpts{Opts: apiutils.NewStore()}
-	if isMountInfoRequested {
-		opts.Attachments = apitypes.VolAttReqWithDevMapForInstance
-	}
 
 	// Use the storage driver to list the volumes.
 	vols, err := d.client.Storage().Volumes(d.ctx, opts)
@@ -360,19 +379,11 @@ func (d *driver) ListVolumes(
 		return nil, err
 	}
 
-	var mounts []*mount.Info
-	if isMountInfoRequested {
-		var err error
-		if mounts, err = mount.GetMounts(); err != nil {
-			return nil, err
-		}
-	}
-
 	// Convert the libStorage volumes to CSI volume info objects.
 	entries := make([]*csi.ListVolumesResponse_Result_Entry, len(vols))
 	for i, v := range vols {
 		entries[i] = &csi.ListVolumesResponse_Result_Entry{
-			VolumeInfo: toVolumeInfo(v, mounts),
+			VolumeInfo: toVolumeInfo(v),
 		}
 	}
 
@@ -510,25 +521,34 @@ func (d *driver) NodePublishVolume(
 			nil
 	}
 
-	opts := &apitypes.WaitForDeviceOpts{
-		Token:   token,
-		Timeout: WFDTimeout * time.Second,
-		LocalDevicesOpts: apitypes.LocalDevicesOpts{
-			Opts:     apiutils.NewStore(),
-			ScanType: apitypes.DeviceScanQuick,
-		},
-	}
-	found, devs, err := d.client.Executor().WaitForDevice(d.ctx, opts)
-	if err != nil || !found {
-		return gocsi.ErrNodePublishVolume(
-			csi.Error_NodePublishVolumeError_MOUNT_ERROR,
-			"device not found"), nil
-	}
-	dev, ok := devs.DeviceMap[token]
-	if !ok {
-		return gocsi.ErrNodePublishVolume(
-			csi.Error_NodePublishVolumeError_MOUNT_ERROR,
-			"device not found"), nil
+	// If this is block-based storage then the attachment token
+	// will be used. Otherwise there is no attachment token so use
+	// the device name as it is an NFS URI or some such thing.
+	var dev string
+	if d.storType != apitypes.Block {
+		dev = token
+	} else {
+		opts := &apitypes.WaitForDeviceOpts{
+			Token:   token,
+			Timeout: WFDTimeout * time.Second,
+			LocalDevicesOpts: apitypes.LocalDevicesOpts{
+				Opts:     apiutils.NewStore(),
+				ScanType: apitypes.DeviceScanQuick,
+			},
+		}
+		found, devs, err := d.client.Executor().WaitForDevice(d.ctx, opts)
+		if err != nil || !found {
+			return gocsi.ErrNodePublishVolume(
+				csi.Error_NodePublishVolumeError_MOUNT_ERROR,
+				"device not found"), nil
+		}
+		devMapVal, ok := devs.DeviceMap[token]
+		if !ok {
+			return gocsi.ErrNodePublishVolume(
+				csi.Error_NodePublishVolumeError_MOUNT_ERROR,
+				"device not found"), nil
+		}
+		dev = devMapVal
 	}
 
 	if mv := req.VolumeCapability.GetMount(); mv != nil {

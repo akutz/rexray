@@ -23,12 +23,29 @@ import (
 
 	"github.com/codedellemc/gocsi"
 	"github.com/codedellemc/gocsi/csi"
+	"github.com/codedellemc/gocsi/mount"
 
 	"github.com/codedellemc/rexray/agent"
 	apictx "github.com/codedellemc/rexray/libstorage/api/context"
 	"github.com/codedellemc/rexray/libstorage/api/registry"
 	apitypes "github.com/codedellemc/rexray/libstorage/api/types"
 )
+
+// BypassSourceFilesystemTypes is a list of the filesystem type regex
+// patterns for which the Source field check is bypassed when returning
+// mount information from GetMounts.
+//
+// Normally when considering mount entries from /proc/self/mountinfo the
+// entry is skipped if its Source field does not have a leading "/"
+// character. Entries are not skipped if they have a filesystem type
+// matches one of the regex patterns in this list.
+func init() {
+	mount.BypassSourceFilesystemTypes = []string{
+		`(?i)^devtmpfs$`,
+		`(?i)^fuse\.`,
+		`(?i)^nfs(\d)?$`,
+	}
+}
 
 type csiServer interface {
 	csi.ControllerServer
@@ -81,12 +98,13 @@ func init() {
 		"CSI",
 		func(ctx apitypes.Context, r gofig.ConfigRegistration) {
 
+			pathConfig := apictx.MustPathConfig(ctx)
 			// If CSI_ENDPOINT is not set then use the path to the
 			// Docker plug-ins socket file.
 			csiEndpoint := os.Getenv("CSI_ENDPOINT")
 			if csiEndpoint == "" {
 				csiEndpoint = path.Join(
-					apictx.MustPathConfig(ctx).Home,
+					pathConfig.Home,
 					"/run/docker/plugins/rexray.sock")
 			}
 
@@ -103,6 +121,9 @@ func init() {
 				"csi.goplugins", "csiGoPlugins", "X_CSI_GO_PLUGINS")
 			r.Key(gofig.Bool, "", false, "",
 				"csi.nodocker", "csiNoDocker", "X_CSI_NO_DOCKER")
+			r.Key(gofig.String, "",
+				path.Join(pathConfig.Lib, "csi", "volumes"),
+				"", "rexray.csi.mount.path")
 		})
 }
 
